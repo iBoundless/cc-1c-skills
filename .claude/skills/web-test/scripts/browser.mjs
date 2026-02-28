@@ -2415,11 +2415,30 @@ export async function startRecording(outputPath, opts = {}) {
   ffmpeg.on('error', err => { ffmpegError += err.message; });
 
   // Listen for screencast frames and pipe to ffmpeg
+  // CDP sends frames only on screen changes, so we duplicate frames
+  // to fill gaps and maintain real-time playback speed
+  const frameDuration = 1000 / fps;
+  let lastFrameTime = null;
+  let lastFrameBuf = null;
+
   cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
     const buf = Buffer.from(data, 'base64');
+    const now = Date.now();
+
     if (!ffmpeg.stdin.destroyed) {
+      if (lastFrameTime && lastFrameBuf) {
+        // Fill the gap with duplicates of the previous frame
+        const gap = now - lastFrameTime;
+        const dupes = Math.round(gap / frameDuration) - 1;
+        for (let i = 0; i < dupes && i < fps * 2; i++) {
+          ffmpeg.stdin.write(lastFrameBuf);
+        }
+      }
       ffmpeg.stdin.write(buf);
     }
+
+    lastFrameTime = now;
+    lastFrameBuf = buf;
     try { await cdp.send('Page.screencastFrameAck', { sessionId }); } catch {}
   });
 
