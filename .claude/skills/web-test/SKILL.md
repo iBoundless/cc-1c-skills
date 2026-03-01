@@ -284,6 +284,7 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `getPage()` → Playwright Page (raw, for advanced scripting)
 #### `startRecording(path, opts?)` / `stopRecording()` → MP4 video recording
 #### `showCaption(text, opts?)` / `hideCaption()` → text overlay on page
+#### `showTitleSlide(text, opts?)` / `hideTitleSlide()` → full-screen title card (intro/outro)
 #### `isRecording()` → boolean
 
 See [recording.md](recording.md) for setup (ffmpeg), API details, and examples.

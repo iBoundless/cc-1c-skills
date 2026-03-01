@@ -251,6 +251,13 @@ await closeForm({ save: false });
 | `screenshot()` | Скриншот (PNG Buffer) |
 | `wait(seconds)` | Пауза, возвращает form state |
 | `getPage()` | Сырой Playwright Page для горячих клавиш и нестандартных операций |
+| `startRecording(path, opts?)` | Начать запись видео (CDP screencast → ffmpeg → MP4) |
+| `stopRecording()` | Остановить запись, вернуть `{ file, duration, size }` |
+| `showCaption(text, opts?)` | Текстовая подпись поверх страницы (для видеозаписей) |
+| `hideCaption()` | Убрать подпись |
+| `showTitleSlide(text, opts?)` | Полноэкранный титульный слайд (`\n` → перенос, `subtitle`, `background`) |
+| `hideTitleSlide()` | Убрать титульный слайд |
+| `isRecording()` | Идёт ли запись (boolean) |
 
 ## Клавиатурные сочетания
 

@@ -2570,6 +2570,55 @@ export async function hideCaption() {
   });
 }
 
+/**
+ * Show a full-screen title slide overlay (for video recordings).
+ * Repeated calls update the content. Use hideTitleSlide() to remove.
+ * @param {string} text  Title text (\n → line break)
+ * @param {object} [opts]
+ * @param {string} [opts.subtitle]    Smaller text below the title
+ * @param {string} [opts.background]  CSS background (default: dark gradient)
+ * @param {string} [opts.color]       Text color (default: '#fff')
+ * @param {number} [opts.fontSize]    Title font size in px (default: 36)
+ */
+export async function showTitleSlide(text, opts = {}) {
+  ensureConnected();
+  const {
+    subtitle = '',
+    background = 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+    color = '#fff',
+    fontSize = 36,
+  } = opts;
+  await page.evaluate(({ text, subtitle, background, color, fontSize }) => {
+    let div = document.getElementById('__web_test_title');
+    if (!div) {
+      div = document.createElement('div');
+      div.id = '__web_test_title';
+      document.body.appendChild(div);
+    }
+    div.style.cssText = [
+      'position:fixed', 'top:0', 'left:0', 'width:100%', 'height:100%',
+      `background:${background}`,
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'z-index:999999', 'pointer-events:none'
+    ].join(';');
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+    let html = `<div style="font-size:${fontSize}px;font-weight:600;line-height:1.4;">${esc(text)}</div>`;
+    if (subtitle) {
+      html += `<div style="font-size:${Math.round(fontSize * 0.5)}px;margin-top:16px;opacity:0.7;">${esc(subtitle)}</div>`;
+    }
+    div.innerHTML = `<div style="text-align:center;max-width:70%;color:${color};font-family:'Segoe UI',Arial,sans-serif;">${html}</div>`;
+  }, { text, subtitle, background, color, fontSize });
+}
+
+/** Remove the title slide overlay. */
+export async function hideTitleSlide() {
+  ensureConnected();
+  await page.evaluate(() => {
+    const el = document.getElementById('__web_test_title');
+    if (el) el.remove();
+  });
+}
+
 // ============================================================
 // Private helpers
 // ============================================================

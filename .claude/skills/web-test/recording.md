@@ -94,24 +94,48 @@ The overlay uses `pointer-events: none` — does not interfere with clicking.
 
 Remove the caption overlay.
 
-## Example: Record a workflow with captions
+### `showTitleSlide(text, opts?)`
+
+Display a full-screen title slide overlay (gradient background, centered text). Useful for intro/outro frames in video recordings. Calling again updates the content.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `text` | string | required | Title text (`\n` → line break) |
+| `opts.subtitle` | string | `''` | Smaller text below the title |
+| `opts.background` | string | dark gradient | CSS background |
+| `opts.color` | string | `'#fff'` | Text color |
+| `opts.fontSize` | number | 36 | Title font size in px |
+
+The overlay covers the entire viewport with `z-index: 999999` and `pointer-events: none`.
+
+### `hideTitleSlide()`
+
+Remove the title slide overlay.
+
+## Example: Record a workflow with title slide and captions
 
 ```js
 await startRecording('recordings/create-order.mp4');
 
-await showCaption('Step 1: Navigate to Sales');
+// Title slide — 4 seconds
+await showTitleSlide('Создание заказа клиента', { subtitle: 'Демонстрация' });
+await wait(4);
+await hideTitleSlide();
+
+// Steps with captions
+await showCaption('Шаг 1. Переходим в раздел «Продажи»');
 await navigateSection('Продажи');
 await wait(1);
 
-await showCaption('Step 2: Open Customer Orders');
+await showCaption('Шаг 2. Открываем заказы клиентов');
 await openCommand('Заказы клиентов');
 await wait(1);
 
-await showCaption('Step 3: Create new order');
+await showCaption('Шаг 3. Создаём новый заказ');
 await clickElement('Создать');
 await wait(2);
 
-await showCaption('Step 4: Fill header fields');
+await showCaption('Шаг 4. Заполняем шапку');
 await fillFields({ 'Организация': 'Конфетпром', 'Контрагент': 'Альфа' });
 await wait(2);
 
