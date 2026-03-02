@@ -8,8 +8,9 @@
  */
 import { chromium } from 'playwright';
 import { spawn, execFileSync } from 'child_process';
-import { statSync, mkdirSync, existsSync as fsExistsSync } from 'fs';
-import { dirname, resolve as pathResolve } from 'path';
+import { statSync, mkdirSync, existsSync as fsExistsSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { dirname, resolve as pathResolve, join as pathJoin, basename, extname } from 'path';
+import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import {
   readSectionsScript, readTabsScript, readCommandsScript,
@@ -24,7 +25,8 @@ let browser = null;
 let page = null;
 let sessionPrefix = null; // e.g. "http://localhost:8081/bpdemo/ru_RU"
 let seanceId = null;
-let recorder = null; // { cdp, ffmpeg, startTime, outputPath }
+let recorder = null; // { cdp, ffmpeg, startTime, outputPath, ffmpegError, captions }
+let lastCaptions = []; // captions from the last completed recording (for addNarration)
 let highlightMode = false;
 
 const LOAD_TIMEOUT = 60000;
@@ -2436,6 +2438,7 @@ export function isRecording() {
 export async function startRecording(outputPath, opts = {}) {
   ensureConnected();
   if (recorder) throw new Error('Already recording. Call stopRecording() first.');
+  lastCaptions = [];
 
   const fps = opts.fps || 25;
   const quality = opts.quality || 80;
@@ -2503,7 +2506,7 @@ export async function startRecording(outputPath, opts = {}) {
     everyNthFrame: 1
   });
 
-  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '' };
+  recorder = { cdp, ffmpeg, startTime: Date.now(), outputPath: resolvedPath, ffmpegError: '', captions: [] };
   // Redirect stderr accumulation to the recorder object
   ffmpeg.stderr.removeAllListeners('data');
   ffmpeg.stderr.on('data', d => { recorder.ffmpegError += d.toString(); });
@@ -2544,12 +2547,21 @@ export async function stopRecording() {
 
   const duration = (Date.now() - startTime) / 1000;
   const stats = statSync(outputPath);
+
+  // Preserve captions for addNarration()
+  lastCaptions = recorder.captions || [];
+  if (lastCaptions.length) {
+    const captionsPath = outputPath.replace(/\.[^.]+$/, '.captions.json');
+    writeFileSync(captionsPath, JSON.stringify(lastCaptions, null, 2), 'utf-8');
+  }
+
   recorder = null;
 
   return {
     file: outputPath,
     duration: Math.round(duration * 10) / 10,
-    size: stats.size
+    size: stats.size,
+    captions: lastCaptions.length
   };
 }
 
@@ -2562,9 +2574,17 @@ export async function stopRecording() {
  * @param {number} [opts.fontSize=24] — font size in pixels
  * @param {string} [opts.background='rgba(0,0,0,0.7)'] — background color
  * @param {string} [opts.color='#fff'] — text color
+ * @param {string|false} [opts.speech] — TTS narration text. Omit to use displayed text,
+ *   pass a string for custom narration, or false to skip narration for this caption.
  */
 export async function showCaption(text, opts = {}) {
   ensureConnected();
+
+  // Collect caption for TTS narration if recording
+  if (recorder && text.trim() && opts.speech !== false) {
+    const speech = typeof opts.speech === 'string' ? opts.speech : text;
+    recorder.captions.push({ text, speech, time: Date.now() - recorder.startTime });
+  }
   const position = opts.position || 'bottom';
   const fontSize = opts.fontSize || 24;
   const bg = opts.background || 'rgba(0,0,0,0.7)';
@@ -2598,6 +2618,168 @@ export async function hideCaption() {
     const el = document.getElementById('__web_test_caption');
     if (el) el.remove();
   });
+}
+
+/**
+ * Get captions collected during the current or last recording.
+ * @returns {Array<{text: string, speech: string, time: number}>}
+ */
+export function getCaptions() {
+  if (recorder) return [...recorder.captions];
+  return [...lastCaptions];
+}
+
+/**
+ * Add TTS narration to a recorded video.
+ * Generates speech from captions and merges audio with the video.
+ * @param {string} videoPath — path to the recorded MP4 file
+ * @param {object} [opts]
+ * @param {Array<{text: string, speech: string, time: number}>} [opts.captions] — explicit captions (default: from last recording or .captions.json)
+ * @param {string} [opts.provider='edge'] — TTS provider: 'edge' or 'openai'
+ * @param {string} [opts.voice] — voice name (provider-specific)
+ * @param {string} [opts.apiKey] — API key (for openai provider)
+ * @param {string} [opts.apiUrl] — API endpoint (for openai provider)
+ * @param {string} [opts.model] — model name (for openai provider, default: 'tts-1')
+ * @param {string} [opts.ffmpegPath] — path to ffmpeg binary
+ * @param {string} [opts.outputPath] — output file path (default: video-narrated.mp4)
+ * @returns {{ file: string, duration: number, size: number, captions: number, warnings?: string[] }}
+ */
+export async function addNarration(videoPath, opts = {}) {
+  const ffmpegPath = opts.ffmpegPath || findFfmpeg();
+  const ttsProvider = getTtsProvider(opts.provider || 'edge');
+  const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model };
+
+  // Resolve captions: explicit > lastCaptions > .captions.json
+  let captions = opts.captions;
+  if (!captions || !captions.length) {
+    captions = lastCaptions.length ? [...lastCaptions] : null;
+  }
+  if (!captions || !captions.length) {
+    const captionsJsonPath = videoPath.replace(/\.[^.]+$/, '.captions.json');
+    if (fsExistsSync(captionsJsonPath)) {
+      captions = JSON.parse(readFileSync(captionsJsonPath, 'utf-8'));
+    }
+  }
+  if (!captions || !captions.length) {
+    throw new Error('No captions available. Record with showCaption() first, or pass opts.captions.');
+  }
+
+  // Output path
+  const ext = extname(videoPath);
+  const base = videoPath.slice(0, -ext.length);
+  const outputPath = opts.outputPath || `${base}-narrated${ext}`;
+
+  // Temp directory
+  const tempDir = pathJoin(tmpdir(), `web-test-tts-${Date.now()}`);
+  mkdirSync(tempDir, { recursive: true });
+
+  const warnings = [];
+
+  try {
+    // Phase 1: Generate TTS audio for each caption
+    const ttsFiles = [];
+    const BATCH_SIZE = 5;
+    for (let batchStart = 0; batchStart < captions.length; batchStart += BATCH_SIZE) {
+      const batch = captions.slice(batchStart, batchStart + BATCH_SIZE);
+      const promises = batch.map(async (cap, batchIdx) => {
+        const idx = batchStart + batchIdx;
+        const ttsFile = pathJoin(tempDir, `tts_${idx}.mp3`);
+        try {
+          await ttsProvider(cap.speech, ttsFile, ttsOpts);
+        } catch (err) {
+          // Retry once
+          try {
+            await ttsProvider(cap.speech, ttsFile, ttsOpts);
+          } catch (retryErr) {
+            warnings.push(`TTS failed for caption ${idx}: ${retryErr.message}`);
+            // Generate 1s silence as placeholder
+            generateSilence(ttsFile, 1, ffmpegPath);
+          }
+        }
+        return ttsFile;
+      });
+      const results = await Promise.all(promises);
+      ttsFiles.push(...results);
+    }
+
+    // Phase 2: Build timeline — interleave silence gaps and TTS segments
+    const segments = []; // { file, type: 'silence'|'tts' }
+
+    for (let i = 0; i < captions.length; i++) {
+      const captionTimeMs = captions[i].time;
+      const ttsFile = ttsFiles[i];
+      const ttsDuration = getAudioDuration(ttsFile, ffmpegPath);
+
+      // Calculate gap before this caption
+      let gapStart;
+      if (i === 0) {
+        gapStart = 0;
+      } else {
+        const prevCaptionTimeMs = captions[i - 1].time;
+        const prevTtsDuration = getAudioDuration(ttsFiles[i - 1], ffmpegPath);
+        gapStart = prevCaptionTimeMs / 1000 + prevTtsDuration;
+      }
+      const gapDuration = captionTimeMs / 1000 - gapStart;
+
+      if (gapDuration > 0.05) {
+        const silenceFile = pathJoin(tempDir, `silence_${i}.mp3`);
+        generateSilence(silenceFile, gapDuration, ffmpegPath);
+        segments.push({ file: silenceFile, type: 'silence' });
+      }
+
+      // Check if TTS audio is longer than gap to next caption — trim if needed
+      if (i < captions.length - 1) {
+        const nextTimeMs = captions[i + 1].time;
+        const maxDuration = (nextTimeMs - captionTimeMs) / 1000;
+        if (ttsDuration > maxDuration && maxDuration > 0.1) {
+          const trimmedFile = pathJoin(tempDir, `tts_${i}_trimmed.mp3`);
+          execFileSync(ffmpegPath, [
+            '-y', '-i', ttsFile, '-t', String(maxDuration),
+            '-c:a', 'copy', trimmedFile,
+          ], { stdio: 'pipe', timeout: 10000 });
+          segments.push({ file: trimmedFile, type: 'tts' });
+          continue;
+        }
+      }
+
+      segments.push({ file: ttsFile, type: 'tts' });
+    }
+
+    // Phase 3: Concat all segments into a single narration track
+    const concatListPath = pathJoin(tempDir, 'concat.txt');
+    const concatContent = segments.map(s => `file '${s.file.replace(/\\/g, '/')}'`).join('\n');
+    writeFileSync(concatListPath, concatContent, 'utf-8');
+
+    const narrationPath = pathJoin(tempDir, 'narration.mp3');
+    execFileSync(ffmpegPath, [
+      '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath,
+      '-c:a', 'libmp3lame', '-b:a', '128k', narrationPath,
+    ], { stdio: 'pipe', timeout: 60000 });
+
+    // Phase 4: Merge video + narration audio
+    execFileSync(ffmpegPath, [
+      '-y', '-i', videoPath, '-i', narrationPath,
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+      '-map', '0:v:0', '-map', '1:a:0',
+      '-shortest', '-movflags', '+faststart', outputPath,
+    ], { stdio: 'pipe', timeout: 120000 });
+
+    const stats = statSync(outputPath);
+    const duration = getAudioDuration(outputPath, ffmpegPath);
+
+    const result = {
+      file: outputPath,
+      duration: Math.round(duration * 10) / 10,
+      size: stats.size,
+      captions: captions.length,
+    };
+    if (warnings.length) result.warnings = warnings;
+    return result;
+
+  } finally {
+    // Cleanup temp directory
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 /**
@@ -2872,6 +3054,86 @@ function resolveFfmpeg(explicit) {
     '  - Add to PATH, or set FFMPEG_PATH env var, or place in tools/ffmpeg/bin/\n' +
     '  - Or pass ffmpegPath option to startRecording()'
   );
+}
+
+// ── TTS providers ──────────────────────────────────────────────────────────
+
+/**
+ * Edge TTS provider (free, no API key). Uses node-edge-tts package.
+ * @param {string} text — text to synthesize
+ * @param {string} outputPath — path for the output mp3 file
+ * @param {object} opts — { voice }
+ */
+async function edgeTtsProvider(text, outputPath, opts = {}) {
+  const { EdgeTTS } = await import('node-edge-tts');
+  const voice = opts.voice || 'ru-RU-DmitryNeural';
+  const tts = new EdgeTTS({ voice });
+  await Promise.race([
+    tts.ttsPromise(text, outputPath),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Edge TTS timeout (30s)')), 30000)),
+  ]);
+}
+
+/**
+ * OpenAI-compatible TTS provider. Requires apiKey.
+ * @param {string} text — text to synthesize
+ * @param {string} outputPath — path for the output mp3 file
+ * @param {object} opts — { apiKey, apiUrl, voice, model }
+ */
+async function openaiTtsProvider(text, outputPath, opts = {}) {
+  const apiUrl = opts.apiUrl || 'https://api.openai.com/v1/audio/speech';
+  if (!opts.apiKey) throw new Error('OpenAI TTS requires apiKey');
+  const resp = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: opts.model || 'tts-1',
+      input: text,
+      voice: opts.voice || 'alloy',
+      response_format: 'mp3',
+    }),
+  });
+  if (!resp.ok) throw new Error(`OpenAI TTS error ${resp.status}: ${await resp.text()}`);
+  const buf = Buffer.from(await resp.arrayBuffer());
+  writeFileSync(outputPath, buf);
+}
+
+/** Get TTS provider function by name. */
+function getTtsProvider(name) {
+  switch (name) {
+    case 'openai': return openaiTtsProvider;
+    case 'edge': default: return edgeTtsProvider;
+  }
+}
+
+// ── TTS audio helpers ──────────────────────────────────────────────────────
+
+/**
+ * Get audio duration in seconds using ffprobe.
+ * @param {string} filePath — path to audio file
+ * @param {string} ffmpegPath — path to ffmpeg binary (ffprobe is found next to it)
+ * @returns {number} duration in seconds
+ */
+function getAudioDuration(filePath, ffmpegPath) {
+  const ffprobePath = ffmpegPath.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+  const out = execFileSync(ffprobePath, [
+    '-v', 'error', '-show_entries', 'format=duration',
+    '-of', 'default=noprint_wrappers=1:nokey=1', filePath,
+  ], { encoding: 'utf8', timeout: 10000 }).trim();
+  return parseFloat(out) || 0;
+}
+
+/**
+ * Generate a silence mp3 file of given duration.
+ * @param {string} outputPath — path for the output mp3 file
+ * @param {number} seconds — duration in seconds
+ * @param {string} ffmpegPath — path to ffmpeg binary
+ */
+function generateSilence(outputPath, seconds, ffmpegPath) {
+  execFileSync(ffmpegPath, [
+    '-y', '-f', 'lavfi', '-i', `anullsrc=r=24000:cl=mono`,
+    '-t', String(seconds), '-c:a', 'libmp3lame', '-b:a', '32k', outputPath,
+  ], { stdio: 'pipe', timeout: 10000 });
 }
 
 function ensureConnected() {
