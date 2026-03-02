@@ -2552,7 +2552,8 @@ export async function stopRecording() {
   lastCaptions = recorder.captions || [];
   if (lastCaptions.length) {
     const captionsPath = outputPath.replace(/\.[^.]+$/, '.captions.json');
-    writeFileSync(captionsPath, JSON.stringify(lastCaptions, null, 2), 'utf-8');
+    const captionsData = { recordingDuration: duration, captions: lastCaptions };
+    writeFileSync(captionsPath, JSON.stringify(captionsData, null, 2), 'utf-8');
   }
 
   recorder = null;
@@ -2645,23 +2646,41 @@ export function getCaptions() {
  * @returns {{ file: string, duration: number, size: number, captions: number, warnings?: string[] }}
  */
 export async function addNarration(videoPath, opts = {}) {
-  const ffmpegPath = opts.ffmpegPath || findFfmpeg();
+  const ffmpegPath = resolveFfmpeg(opts.ffmpegPath);
   const ttsProvider = getTtsProvider(opts.provider || 'edge');
   const ttsOpts = { voice: opts.voice, apiKey: opts.apiKey, apiUrl: opts.apiUrl, model: opts.model };
 
   // Resolve captions: explicit > lastCaptions > .captions.json
   let captions = opts.captions;
+  let recordingDuration = null; // wall-clock duration of the recording (seconds)
   if (!captions || !captions.length) {
     captions = lastCaptions.length ? [...lastCaptions] : null;
   }
   if (!captions || !captions.length) {
     const captionsJsonPath = videoPath.replace(/\.[^.]+$/, '.captions.json');
     if (fsExistsSync(captionsJsonPath)) {
-      captions = JSON.parse(readFileSync(captionsJsonPath, 'utf-8'));
+      const raw = JSON.parse(readFileSync(captionsJsonPath, 'utf-8'));
+      // Support both formats: array (old) and { recordingDuration, captions } (new)
+      if (Array.isArray(raw)) {
+        captions = raw;
+      } else {
+        captions = raw.captions;
+        recordingDuration = raw.recordingDuration || null;
+      }
     }
   }
   if (!captions || !captions.length) {
     throw new Error('No captions available. Record with showCaption() first, or pass opts.captions.');
+  }
+
+  // Scale caption timestamps to match actual video duration
+  // (screencast frame duplication can cause video to be longer than wall-clock time)
+  const videoDuration = getAudioDuration(videoPath, ffmpegPath);
+  if (recordingDuration && recordingDuration > 0) {
+    const timeScale = videoDuration / recordingDuration;
+    if (Math.abs(timeScale - 1) > 0.005) { // only scale if >0.5% difference
+      captions = captions.map(c => ({ ...c, time: Math.round(c.time * timeScale) }));
+    }
   }
 
   // Output path
@@ -2703,34 +2722,27 @@ export async function addNarration(videoPath, opts = {}) {
     }
 
     // Phase 2: Build timeline — interleave silence gaps and TTS segments
+    // Track actual accumulated position to prevent drift from MP3 frame quantization
     const segments = []; // { file, type: 'silence'|'tts' }
+    let currentPosition = 0; // actual accumulated duration in seconds
 
     for (let i = 0; i < captions.length; i++) {
-      const captionTimeMs = captions[i].time;
+      const captionTimeSec = captions[i].time / 1000;
       const ttsFile = ttsFiles[i];
       const ttsDuration = getAudioDuration(ttsFile, ffmpegPath);
 
-      // Calculate gap before this caption
-      let gapStart;
-      if (i === 0) {
-        gapStart = 0;
-      } else {
-        const prevCaptionTimeMs = captions[i - 1].time;
-        const prevTtsDuration = getAudioDuration(ttsFiles[i - 1], ffmpegPath);
-        gapStart = prevCaptionTimeMs / 1000 + prevTtsDuration;
-      }
-      const gapDuration = captionTimeMs / 1000 - gapStart;
-
-      if (gapDuration > 0.05) {
+      // Add silence to reach this caption's target timestamp
+      const silenceDuration = captionTimeSec - currentPosition;
+      if (silenceDuration > 0.05) {
         const silenceFile = pathJoin(tempDir, `silence_${i}.mp3`);
-        generateSilence(silenceFile, gapDuration, ffmpegPath);
+        generateSilence(silenceFile, silenceDuration, ffmpegPath);
         segments.push({ file: silenceFile, type: 'silence' });
+        currentPosition += getAudioDuration(silenceFile, ffmpegPath);
       }
 
       // Speed up TTS if it's longer than gap to next caption (instead of trimming)
       if (i < captions.length - 1) {
-        const nextTimeMs = captions[i + 1].time;
-        const maxDuration = (nextTimeMs - captionTimeMs) / 1000;
+        const maxDuration = (captions[i + 1].time - captions[i].time) / 1000;
         if (ttsDuration > maxDuration && maxDuration > 0.1) {
           const tempo = ttsDuration / maxDuration;
           const spedFile = pathJoin(tempDir, `tts_${i}_sped.mp3`);
@@ -2739,11 +2751,13 @@ export async function addNarration(videoPath, opts = {}) {
             '-c:a', 'libmp3lame', '-b:a', '128k', spedFile,
           ], { stdio: 'pipe', timeout: 10000 });
           segments.push({ file: spedFile, type: 'tts' });
+          currentPosition += getAudioDuration(spedFile, ffmpegPath);
           continue;
         }
       }
 
       segments.push({ file: ttsFile, type: 'tts' });
+      currentPosition += ttsDuration;
     }
 
     // Phase 3: Concat all segments into a single narration track
