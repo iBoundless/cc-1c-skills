@@ -459,18 +459,23 @@ export async function openFile(filePath) {
         }
         await waitForStable(formBefore);
       }
-      // After confirmation, check for a follow-up informational dialog (OK button)
-      // 1C may show "file opened in safe mode, please re-open" modal
-      const err2 = await checkForErrors();
-      if (err2?.modal) {
-        await dismissPendingErrors();
-        await waitForStable(formBefore);
-        // Dismissed the info dialog — retry the whole open cycle
-        continue;
-      }
-      // Check if the EPF form appeared
+      // After confirmation, check if EPF form appeared or a follow-up dialog showed.
+      // Check form change FIRST — avoids confusing a small EPF form with a modal dialog.
       const formAfter = await page.evaluate(detectFormScript());
       if (formAfter != null && formAfter !== formBefore) {
+        // New form appeared — but is it the EPF or an informational dialog?
+        // Informational "re-open" dialogs are tiny (< 20 elements).
+        const elCount = await page.evaluate(`document.querySelectorAll('[id^="form${formAfter}_"]').length`);
+        if (elCount < 20) {
+          // Likely an info dialog — check and dismiss
+          const err2 = await checkForErrors();
+          if (err2?.modal) {
+            await dismissPendingErrors();
+            await waitForStable(formBefore);
+            continue; // retry open cycle
+          }
+        }
+        // It's the real EPF form
         const state = await getFormState();
         state.opened = { file: absPath, attempt: attempt + 1 };
         return state;
