@@ -229,9 +229,13 @@ Method is one of: `'toggle'` | `'radio'` | `'paste'` | `'dropdown'` | `'form'` |
 #### `selectValue(field, search, opts?)` → form state with `selected`
 Select a value from reference field via dropdown or selection form. More reliable than `fillFields` for reference fields that need exact selection from a catalog.
 
+`search` — string for simple search, or `{ field: value }` object for per-field advanced search:
 ```js
 await selectValue('Организация', 'Конфетпром');
 // result.selected = { field: 'Организация', search: 'Конфетпром', method: 'dropdown'|'form' }
+
+// Per-field search (disambiguate by multiple columns):
+await selectValue('Документ', { 'Номер': '0000-000601', 'Дата': '29.12.2016' }, { type: 'Реализация (акт' });
 ```
 
 For **composite-type fields** (accepting multiple types), specify `type` to first select the type, then the value:

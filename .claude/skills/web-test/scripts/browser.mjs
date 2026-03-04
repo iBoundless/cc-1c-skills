@@ -739,59 +739,46 @@ export async function readSpreadsheet() {
 }
 
 /**
- * Pick a value from an opened selection form: search + dblclick matching row.
+ * Pick a value from an opened selection form: filter + dblclick matching row.
  *
  * Strategy:
- *   1. Find search input in selection form
- *   2. Clipboard paste search text (trusted event, more reliable than page.fill)
- *   3. Press Enter to apply search filter
- *   4. Wait for grid to update, then score rows
- *   5. Dblclick best match; if form persists (hit a folder), try Enter as fallback
+ *   - string: simple search via filterList → dblclick first row
+ *   - object: advanced search (Alt+F) for each field sequentially
+ *     (searches by specific column, efficient on large tables) → dblclick positioned row
  *
+ * @param {number} selFormNum - selection form number
+ * @param {string} fieldName - field being filled (for error messages)
+ * @param {string|Object} search - string for simple search, or { field: value } for per-field search
+ * @param {number} origFormNum - original form number (to verify we returned)
  * @returns {{ field, ok, method }} or {{ field, error, message }}
  */
-async function pickFromSelectionForm(selFormNum, fieldName, text, origFormNum) {
-  // 1. Find search input in the selection form (strict — only named search fields,
-  //    do NOT fall back to first input — it may be a filter field like ТипСоглашения)
-  const searchInputId = await page.evaluate(`(() => {
-    const p = 'form${selFormNum}_';
-    const inputs = [...document.querySelectorAll('input.editInput[id^="' + p + '"]')].filter(el => el.offsetWidth > 0);
-    const searchInput = inputs.find(el => /поиск|search|строкапоиска|SearchString|find/i.test(el.id));
-    return searchInput ? searchInput.id : null;
-  })()`)
-
-  // 2. Fill search field via clipboard paste (more reliable than page.fill for 1C)
-  if (searchInputId && text) {
-    await page.click(`[id="${searchInputId}"]`);
-    await page.waitForTimeout(300);
-    // Select all existing text and replace with paste
-    await page.keyboard.press('Control+A');
-    await page.evaluate(`navigator.clipboard.writeText(${JSON.stringify(text)})`);
-    await page.keyboard.press('Control+V');
-    await page.waitForTimeout(500);
-    // Apply search
-    await page.keyboard.press('Enter');
-    // Wait for search results: loading indicator + grid row count stabilization
-    await waitForStable();
-    // Extra: wait for grid content to settle (loader inside grid, async row fetch)
-    let gridStable = 0, lastRowCount = -1;
-    for (let i = 0; i < 15 && gridStable < 3; i++) {
-      await page.waitForTimeout(POLL_INTERVAL);
-      const rc = await page.evaluate(`(() => {
-        const p = 'form${selFormNum}_';
-        const grid = document.querySelector('[id^="' + p + '"].grid, [id^="' + p + '"] .grid');
-        if (!grid) return -1;
-        const loading = grid.querySelector('.loadingImage, .waitCurtain, .progressBar');
-        if (loading && loading.offsetWidth > 0) return -2;
-        const body = grid.querySelector('.gridBody');
-        return body ? body.querySelectorAll('.gridLine').length : 0;
-      })()`);
-      if (rc === -2) { gridStable = 0; continue; } // still loading
-      if (rc === lastRowCount) { gridStable++; } else { gridStable = 0; lastRowCount = rc; }
+async function pickFromSelectionForm(selFormNum, fieldName, search, origFormNum) {
+  // 1. Apply filters based on search type
+  if (typeof search === 'string') {
+    // Simple text search
+    if (search) {
+      try {
+        await filterList(search);
+      } catch (e) {
+        await page.keyboard.press('Escape');
+        await waitForStable();
+        return { field: fieldName, error: 'filter_failed', message: e.message };
+      }
+    }
+  } else if (search && typeof search === 'object') {
+    // Per-field advanced search (Alt+F) for each entry — searches by specific column,
+    // more efficient than simple search on large tables (no full-text scan across all columns).
+    const entries = Object.entries(search);
+    for (const [fld, val] of entries) {
+      try {
+        await filterList(String(val), { field: fld });
+      } catch (e) {
+        // Advanced search failed — fall through and try with what we have
+      }
     }
   }
 
-  // 3. Read grid and find best matching row
+  // 2. Find the target row — currently selected (positioned by advanced search) or first
   const rowTarget = await page.evaluate(`(() => {
     const p = 'form${selFormNum}_';
     const grid = document.querySelector('[id^="' + p + '"].grid, [id^="' + p + '"] .grid');
@@ -800,76 +787,56 @@ async function pickFromSelectionForm(selFormNum, fieldName, text, origFormNum) {
     if (!body) return null;
     const lines = [...body.querySelectorAll('.gridLine')];
     if (!lines.length) return { rowCount: 0 };
-    const target = ${JSON.stringify(text.toLowerCase().replace(/ё/g, 'е'))};
-    const ny = s => s.replace(/ё/gi, 'е');
-
-    // Score each row: exact cell match > row includes > partial cell match
-    let bestLine = null, bestScore = 0;
-    for (const line of lines) {
-      const boxes = [...line.querySelectorAll('.gridBoxText')].map(b => b.innerText?.trim() || '');
-      const rowText = ny(boxes.join(' ').toLowerCase());
-      let score = 0;
-      if (boxes.some(b => ny(b.toLowerCase()) === target)) score = 3;           // exact cell match
-      else if (rowText === target) score = 3;                                    // exact row match
-      else if (boxes.some(b => ny(b.toLowerCase()).includes(target))) score = 2; // cell includes target
-      else if (rowText.includes(target)) score = 2;                              // row includes target
-      else if (target.includes(ny(boxes[0]?.toLowerCase()))) score = 1;          // target includes first cell
-      if (score > bestScore) { bestScore = score; bestLine = line; }
-    }
-
-    // If search was applied and only 1 row — pick it even without text match
-    if (!bestLine && lines.length === 1) {
-      bestLine = lines[0]; bestScore = 1;
-    }
-    if (!bestLine || bestScore === 0) return { rowCount: lines.length, score: 0 };
-    const r = bestLine.getBoundingClientRect();
-    return { rowCount: lines.length, score: bestScore,
+    // Prefer selected/active row (positioned by advanced search), fall back to first
+    const sel = lines.find(l => l.classList.contains('select') || l.classList.contains('active')) || lines[0];
+    const r = sel.getBoundingClientRect();
+    return { rowCount: lines.length, matched: true,
       x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
   })()`);
 
-  if (rowTarget?.x && rowTarget.score > 0) {
-    // 4. Dblclick the matched row
-    await page.mouse.dblclick(rowTarget.x, rowTarget.y);
+  if (!rowTarget?.matched) {
+    await page.keyboard.press('Escape');
+    await waitForStable();
+    const searchDesc = typeof search === 'string' ? '"' + search + '"' : JSON.stringify(search);
+    return { field: fieldName, error: 'not_found',
+      message: 'No matches in selection form for ' + searchDesc +
+        (rowTarget?.rowCount === 0 ? ' (grid empty)' : '') };
+  }
+
+  // 3. Dblclick the target row
+  await page.mouse.dblclick(rowTarget.x, rowTarget.y);
+  await waitForStable(selFormNum);
+
+  // Verify selection form closed
+  const stillOpen = await page.evaluate(`(() => {
+    const p = 'form${selFormNum}_';
+    return [...document.querySelectorAll('[id^="' + p + '"]')].some(el => el.offsetWidth > 0);
+  })()`);
+  if (stillOpen) {
+    // Dblclick may have opened a folder — try Enter to select current row
+    await page.keyboard.press('Enter');
     await waitForStable(selFormNum);
 
-    // Verify selection form closed
-    const stillOpen = await page.evaluate(`(() => {
+    // Still open? Close and report
+    const stillOpen2 = await page.evaluate(`(() => {
       const p = 'form${selFormNum}_';
       return [...document.querySelectorAll('[id^="' + p + '"]')].some(el => el.offsetWidth > 0);
     })()`);
-    if (stillOpen) {
-      // Dblclick may have opened a folder — try Enter to select current row
-      await page.keyboard.press('Enter');
-      await waitForStable(selFormNum);
-
-      // Still open? Close and report
-      const stillOpen2 = await page.evaluate(`(() => {
-        const p = 'form${selFormNum}_';
-        return [...document.querySelectorAll('[id^="' + p + '"]')].some(el => el.offsetWidth > 0);
-      })()`);
-      if (stillOpen2) {
-        await page.keyboard.press('Escape');
-        await waitForStable();
-      }
+    if (stillOpen2) {
+      await page.keyboard.press('Escape');
+      await waitForStable();
     }
-
-    // Check for 1C error modals after selection
-    const err = await page.evaluate(checkErrorsScript());
-    if (err?.modal) {
-      try {
-        const btn = await page.$('a.press.pressDefault');
-        if (btn) { await btn.click(); await page.waitForTimeout(500); }
-      } catch { /* OK */ }
-    }
-    return { field: fieldName, ok: true, method: 'form' };
   }
 
-  // 5. No matching row or grid empty — close and report error
-  await page.keyboard.press('Escape');
-  await waitForStable();
-  return { field: fieldName, error: 'not_found',
-    message: 'No matches in selection form for "' + text + '"' +
-      (rowTarget?.rowCount ? ' (' + rowTarget.rowCount + ' rows checked)' : ' (grid empty)') };
+  // Check for 1C error modals after selection
+  const err = await page.evaluate(checkErrorsScript());
+  if (err?.modal) {
+    try {
+      const btn = await page.$('a.press.pressDefault');
+      if (btn) { await btn.click(); await page.waitForTimeout(500); }
+    } catch { /* OK */ }
+  }
+  return { field: fieldName, ok: true, method: 'form' };
 }
 
 /**
@@ -2607,14 +2574,15 @@ export async function filterList(text, { field, exact } = {}) {
   }
   await page.waitForTimeout(2000);
 
-  // 5. Close dialog if it stayed open (some forms keep it open after Найти)
-  //    Check for modalSurface directly — more reliable than detectFormScript.
+  // 5. Close advanced search dialog if it stayed open (some forms keep it open after Найти).
+  //    Check the specific dialog form — not generic modalSurface — to avoid closing parent modals
+  //    (e.g. a selection form that opened this advanced search).
   for (let attempt = 0; attempt < 3; attempt++) {
-    const hasModal = await page.evaluate(`(() => {
-      const m = document.getElementById('modalSurface');
-      return m && m.offsetWidth > 0;
+    const dialogVisible = await page.evaluate(`(() => {
+      const p = 'form${dialogForm}_';
+      return [...document.querySelectorAll('[id^="' + p + '"]')].some(el => el.offsetWidth > 0);
     })()`);
-    if (!hasModal) break;
+    if (!dialogVisible) break;
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
   }
