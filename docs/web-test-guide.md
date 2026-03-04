@@ -237,7 +237,7 @@ await closeForm({ save: false });
 | `clickElement(text, {dblclick?})` | Клик по кнопке/ссылке/строке. `{dblclick: true}` для открытия из списка | form state или `{ submenu }` |
 | `fillFields({name: value})` | Заполнить поля (текст, чекбокс, радио, ссылки, DCS-фильтры) | `{ filled: [{field, ok, method}], form }` |
 | `selectValue(field, search, opts?)` | Выбрать из справочника. search: текст или `{поле: значение}`. `{ type }` для составного типа | form state с `selected` |
-| `fillTableRow(fields, {tab?, add?, row?})` | Заполнить строку таблицы. `add: true` = новая, `row: N` = редактирование | form state |
+| `fillTableRow(fields, {tab?, add?, row?})` | Заполнить строку. Значение: строка или `{ value, type }` для составного типа | form state |
 | `deleteTableRow(row, {tab?})` | Удалить строку по индексу | form state |
 | `closeForm({save?})` | Закрыть форму. `save: false` = "Нет", `save: true` = "Да" | form state |
 | `filterList(text, {field?, exact?})` | Фильтр списка. Без field = все колонки, с field = расширенный поиск | form state |

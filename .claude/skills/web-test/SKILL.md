@@ -248,7 +248,7 @@ await selectValue('Документ', '0000-000601', { type: 'Реализаци
 Also supports DCS labels — auto-enables the paired checkbox.
 
 #### `fillTableRow(fields, opts)` → form state
-Fill table row cells via Tab navigation.
+Fill table row cells via Tab navigation. Value is a plain string or `{ value, type }` for composite-type cells.
 
 ```js
 // Add new row:
@@ -260,6 +260,11 @@ await fillTableRow(
 await fillTableRow(
   { 'Количество': '20' },
   { tab: 'Товары', row: 0 }
+);
+// Composite-type cell (e.g. SubConto accepting multiple types):
+await fillTableRow(
+  { 'СубконтоКт1': { value: 'Голованов', type: 'Физическое лицо' } },
+  { tab: 'Проводки' }
 );
 ```
 

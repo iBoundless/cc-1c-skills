@@ -1981,7 +1981,11 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
   // 4. Prepare pending fields for fuzzy matching
   const pending = new Map();
   for (const [key, val] of Object.entries(fields)) {
-    pending.set(key, { value: String(val), filled: false });
+    if (val && typeof val === 'object' && 'value' in val) {
+      pending.set(key, { value: String(val.value), type: val.type || null, filled: false });
+    } else {
+      pending.set(key, { value: String(val), type: null, filled: false });
+    }
   }
 
   const results = [];
@@ -2005,7 +2009,7 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
       return { tag: f.tagName || 'none' };
     })()`);
 
-    if (cell.tag !== 'INPUT') {
+    if (cell.tag !== 'INPUT' || !cell.fullName) {
       // Not in an editable grid cell — Tab past (ERP has DIV focus between cells)
       nonInputCount++;
       if (nonInputCount > 3) break; // truly exited edit mode
@@ -2055,6 +2059,76 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
     await page.evaluate(`navigator.clipboard.writeText(${JSON.stringify(text)})`);
     await page.keyboard.press('Control+V');
     await page.waitForTimeout(1500);
+
+    // Check if paste was rejected (composite-type cell blocks text input until type is selected)
+    const inputAfterPaste = await page.evaluate(`document.activeElement?.value || ''`);
+    if (!inputAfterPaste && text) {
+      // Paste rejected — cell requires type selection first via F4
+      if (info.type) {
+        await page.keyboard.press('F4');
+        await page.waitForTimeout(1000);
+        const typeForm = await page.evaluate(`(() => {
+          const forms = {};
+          document.querySelectorAll('[id]').forEach(el => {
+            if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+            const m = el.id.match(/^form(\\d+)_/);
+            if (m) forms[m[1]] = true;
+          });
+          const nums = Object.keys(forms).map(Number).filter(n => n > ${formNum});
+          return nums.length > 0 ? Math.max(...nums) : null;
+        })()`);
+        if (typeForm !== null && await isTypeDialog(typeForm)) {
+          await pickFromTypeDialog(typeForm, info.type);
+          await waitForStable(typeForm);
+          // After type selection, the selection form should open
+          const selForm = await page.evaluate(`(() => {
+            const forms = {};
+            document.querySelectorAll('[id]').forEach(el => {
+              if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+              const m = el.id.match(/^form(\\d+)_/);
+              if (m) forms[m[1]] = true;
+            });
+            const nums = Object.keys(forms).map(Number).filter(n => n > ${formNum});
+            return nums.length > 0 ? Math.max(...nums) : null;
+          })()`);
+          if (selForm === null) {
+            info.filled = true;
+            results.push({ field: matchedKey, cell: cell.fullName,
+              error: 'no_selection_form',
+              message: `After selecting type "${info.type}", no selection form opened` });
+            continue;
+          }
+          const pickResult = await pickFromSelectionForm(selForm, matchedKey, text, formNum);
+          info.filled = true;
+          results.push(pickResult.ok
+            ? { field: matchedKey, cell: cell.fullName, ok: true, method: 'form', type: info.type }
+            : { field: matchedKey, cell: cell.fullName,
+                error: pickResult.error, message: pickResult.message });
+          continue;
+        }
+        // F4 opened something but not a type dialog — close and report
+        if (typeForm !== null) {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+        }
+        info.filled = true;
+        results.push({ field: matchedKey, cell: cell.fullName,
+          error: 'paste_rejected',
+          message: `Cell "${matchedKey}" rejected text input. F4 did not open type dialog` });
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(500);
+        continue;
+      } else {
+        // No type specified — can't fill this composite-type cell
+        info.filled = true;
+        results.push({ field: matchedKey, cell: cell.fullName,
+          error: 'type_required',
+          message: `Cell "${matchedKey}" rejected text input (composite-type). Use { value: '...', type: 'Тип' } syntax` });
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(500);
+        continue;
+      }
+    }
 
     // Check for EDD autocomplete (indicates reference field)
     const eddItems = await page.evaluate(`(() => {
@@ -2209,11 +2283,11 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
       continue;
     }
 
-    // Check for a new selection form (reference field opened selection)
+    // Check for a new form (broad detection — also catches type dialogs whose buttons lack IDs)
     const newForm = await page.evaluate(`(() => {
       const forms = {};
-      document.querySelectorAll('input.editInput[id], a.press[id]').forEach(el => {
-        if (el.offsetWidth === 0) return;
+      document.querySelectorAll('[id]').forEach(el => {
+        if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
         const m = el.id.match(/^form(\\d+)_/);
         if (m) forms[m[1]] = true;
       });
@@ -2222,7 +2296,53 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
     })()`);
 
     if (newForm !== null) {
-      // Selection form opened — search and pick
+      if (await isTypeDialog(newForm)) {
+        // Composite-type cell — need type to proceed
+        if (info.type) {
+          await pickFromTypeDialog(newForm, info.type);
+          await waitForStable(newForm);
+          // After type selection, the actual selection form should open
+          const selForm = await page.evaluate(`(() => {
+            const forms = {};
+            document.querySelectorAll('[id]').forEach(el => {
+              if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+              const m = el.id.match(/^form(\\d+)_/);
+              if (m) forms[m[1]] = true;
+            });
+            const nums = Object.keys(forms).map(Number).filter(n => n > ${formNum});
+            return nums.length > 0 ? Math.max(...nums) : null;
+          })()`);
+          if (selForm === null) {
+            info.filled = true;
+            results.push({ field: matchedKey, cell: cell.fullName,
+              error: 'no_selection_form',
+              message: `After selecting type "${info.type}", no selection form opened` });
+            continue;
+          }
+          const pickResult = await pickFromSelectionForm(selForm, matchedKey, text, formNum);
+          info.filled = true;
+          results.push(pickResult.ok
+            ? { field: matchedKey, cell: cell.fullName, ok: true, method: 'form', type: info.type }
+            : { field: matchedKey, cell: cell.fullName,
+                error: pickResult.error, message: pickResult.message });
+          continue;
+        } else {
+          // No type specified — close dialog, clear cell, report error
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Delete');
+          await page.waitForTimeout(300);
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(500);
+          info.filled = true;
+          results.push({ field: matchedKey, cell: cell.fullName,
+            error: 'type_required',
+            message: `Cell "${matchedKey}" opened a type selection dialog. Use { value: '...', type: 'Тип' } syntax` });
+          continue;
+        }
+      }
+      // Not a type dialog — normal selection form
       const pickResult = await pickFromSelectionForm(newForm, matchedKey, text, formNum);
       info.filled = true;
       results.push(pickResult.ok
