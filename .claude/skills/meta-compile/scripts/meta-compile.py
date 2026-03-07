@@ -1341,12 +1341,10 @@ def emit_chart_of_characteristic_types_properties(indent):
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
-    code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
     code_allowed_length = str(defn['codeAllowedLength']) if defn.get('codeAllowedLength') else 'Variable'
     autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
     check_unique = 'true' if defn.get('checkUnique') is True else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
-    X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
@@ -1490,12 +1488,9 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{code_series}</CodeSeries>')
     X(f'{i}<CheckUnique>false</CheckUnique>')
-    X(f'{i}<Autonumbering>true</Autonumbering>')
     X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
     X(f'{i}<AutoOrderByCode>{auto_order}</AutoOrderByCode>')
     X(f'{i}<OrderLength>{order_length}</OrderLength>')
-    hierarchical = 'true' if defn.get('hierarchical') is True else 'false'
-    X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
     X(f'{i}<EditType>InDialog</EditType>')
     emit_standard_attributes(i, 'ChartOfAccounts')
     X(f'{i}<StandardTabularSections>')
@@ -1578,16 +1573,12 @@ def emit_chart_of_calculation_types_properties(indent):
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
     code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
     code_allowed_length = str(defn['codeAllowedLength']) if defn.get('codeAllowedLength') else 'Variable'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
-    check_unique = 'true' if defn.get('checkUnique') is True else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
-    X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
-    X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
-    dependence = str(defn['dependenceOnCalculationTypes']) if defn.get('dependenceOnCalculationTypes') else 'NotUsed'
+    dependence = str(defn['dependenceOnCalculationTypes']) if defn.get('dependenceOnCalculationTypes') else 'DontUse'
     X(f'{i}<DependenceOnCalculationTypes>{dependence}</DependenceOnCalculationTypes>')
     base_types = list(defn.get('baseCalculationTypes', []))
     if base_types:

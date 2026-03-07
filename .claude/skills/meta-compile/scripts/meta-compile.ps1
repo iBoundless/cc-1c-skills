@@ -1526,13 +1526,11 @@ function Emit-ChartOfCharacteristicTypesProperties {
 
 	$codeLength = if ($null -ne $def.codeLength) { "$($def.codeLength)" } else { "9" }
 	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
-	$codeType = if ($def.codeType) { "$($def.codeType)" } else { "String" }
 	$codeAllowedLength = if ($def.codeAllowedLength) { "$($def.codeAllowedLength)" } else { "Variable" }
 	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
 	$checkUnique = if ($def.checkUnique -eq $true) { "true" } else { "false" }
 
 	X "$i<CodeLength>$codeLength</CodeLength>"
-	X "$i<CodeType>$codeType</CodeType>"
 	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
 	X "$i<CheckUnique>$checkUnique</CheckUnique>"
@@ -1702,13 +1700,9 @@ function Emit-ChartOfAccountsProperties {
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
 	X "$i<CodeSeries>$codeSeries</CodeSeries>"
 	X "$i<CheckUnique>false</CheckUnique>"
-	X "$i<Autonumbering>true</Autonumbering>"
 	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
 	X "$i<AutoOrderByCode>$autoOrder</AutoOrderByCode>"
 	X "$i<OrderLength>$orderLength</OrderLength>"
-
-	$hierarchical = if ($def.hierarchical -eq $true) { "true" } else { "false" }
-	X "$i<Hierarchical>$hierarchical</Hierarchical>"
 
 	X "$i<EditType>InDialog</EditType>"
 
@@ -1813,18 +1807,14 @@ function Emit-ChartOfCalculationTypesProperties {
 	$descriptionLength = if ($null -ne $def.descriptionLength) { "$($def.descriptionLength)" } else { "25" }
 	$codeType = if ($def.codeType) { "$($def.codeType)" } else { "String" }
 	$codeAllowedLength = if ($def.codeAllowedLength) { "$($def.codeAllowedLength)" } else { "Variable" }
-	$autonumbering = if ($def.autonumbering -eq $false) { "false" } else { "true" }
-	$checkUnique = if ($def.checkUnique -eq $true) { "true" } else { "false" }
 
 	X "$i<CodeLength>$codeLength</CodeLength>"
 	X "$i<CodeType>$codeType</CodeType>"
 	X "$i<CodeAllowedLength>$codeAllowedLength</CodeAllowedLength>"
 	X "$i<DescriptionLength>$descriptionLength</DescriptionLength>"
 	X "$i<DefaultPresentation>AsDescription</DefaultPresentation>"
-	X "$i<CheckUnique>$checkUnique</CheckUnique>"
-	X "$i<Autonumbering>$autonumbering</Autonumbering>"
 
-	$dependence = if ($def.dependenceOnCalculationTypes) { "$($def.dependenceOnCalculationTypes)" } else { "NotUsed" }
+	$dependence = if ($def.dependenceOnCalculationTypes) { "$($def.dependenceOnCalculationTypes)" } else { "DontUse" }
 	X "$i<DependenceOnCalculationTypes>$dependence</DependenceOnCalculationTypes>"
 
 	# BaseCalculationTypes
