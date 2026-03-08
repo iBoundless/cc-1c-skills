@@ -2068,14 +2068,11 @@ def emit_addressing_attribute(indent, addr_def):
     type_str = ''
     addressing_dimension = ''
     indexing = 'Index'
-    if isinstance(addr_def, str):
-        name = addr_def
-        attr_synonym = split_camel_case(name)
-    else:
-        name = str(addr_def.get('name', ''))
-        attr_synonym = str(addr_def['synonym']) if addr_def.get('synonym') else split_camel_case(name)
-        if addr_def.get('type'):
-            type_str = str(addr_def['type'])
+    parsed = parse_attribute_shorthand(addr_def)
+    name = parsed['name']
+    attr_synonym = parsed['synonym']
+    type_str = parsed['type']
+    if not isinstance(addr_def, str):
         if addr_def.get('addressingDimension'):
             addressing_dimension = str(addr_def['addressingDimension'])
         if addr_def.get('indexing'):

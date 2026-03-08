@@ -2392,13 +2392,11 @@ function Emit-AddressingAttribute {
 	$addressingDimension = ""
 	$indexing = "Index"
 
-	if ($addrDef -is [string]) {
-		$name = "$addrDef"
-		$attrSynonym = Split-CamelCase $name
-	} else {
-		$name = "$($addrDef.name)"
-		$attrSynonym = if ($addrDef.synonym) { "$($addrDef.synonym)" } else { Split-CamelCase $name }
-		if ($addrDef.type) { $typeStr = "$($addrDef.type)" }
+	$parsed = Parse-AttributeShorthand $addrDef
+	$name = $parsed.name
+	$attrSynonym = $parsed.synonym
+	$typeStr = $parsed.type
+	if ($addrDef -isnot [string]) {
 		if ($addrDef.addressingDimension) { $addressingDimension = "$($addrDef.addressingDimension)" }
 		if ($addrDef.indexing) { $indexing = "$($addrDef.indexing)" }
 	}
