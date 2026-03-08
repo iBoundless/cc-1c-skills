@@ -50,14 +50,16 @@ powershell.exe -NoProfile -File .claude/skills/meta-compile/scripts/meta-compile
 
 Флаги: `req`, `index`, `indexAdditional`, `nonneg`, `master`, `mainFilter`, `denyIncomplete`, `useInTotals`.
 
-### Свойства по типам — справочники
+### Свойства по типам
 
-**Перед компиляцией прочитай справочник нужного типа** — там таблицы всех свойств, умолчания и допустимые значения enum-полей:
+Примеров и shorthand-синтаксиса выше достаточно для типовых задач. Если нужны свойства типа, не показанные в примерах, и их допустимые значения — см. reference-файл:
 
 - `reference/types-basic.md` — Catalog, Document, Enum, Constant, DefinedType, Report, DataProcessor
 - `reference/types-registers.md` — InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes
 - `reference/types-process.md` — BusinessProcess, Task, ExchangePlan, CommonModule, ScheduledJob, EventSubscription, DocumentJournal
 - `reference/types-web.md` — HTTPService, WebService
+
+Эта инструкция и reference-файлы — полная документация для генерации. Не ищи примеры XML в выгрузках конфигураций.
 
 ## Примеры паттернов DSL
 
