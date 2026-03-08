@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.0 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.4 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
