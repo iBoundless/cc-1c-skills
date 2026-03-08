@@ -239,7 +239,7 @@ function Emit-TypeContent {
 
 	# String or String(N)
 	if ($typeStr -match '^String(\((\d+)\))?$') {
-		$len = if ($Matches[2]) { $Matches[2] } else { "0" }
+		$len = if ($Matches[2]) { $Matches[2] } else { "10" }
 		X "$indent<v8:Type>xs:string</v8:Type>"
 		X "$indent<v8:StringQualifiers>"
 		X "$indent`t<v8:Length>$len</v8:Length>"

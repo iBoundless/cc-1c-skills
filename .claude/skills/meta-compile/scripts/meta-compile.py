@@ -244,7 +244,7 @@ def emit_type_content(indent, type_str):
     # String or String(N)
     m = re.match(r'^String(\((\d+)\))?$', type_str)
     if m:
-        length = m.group(2) if m.group(2) else '0'
+        length = m.group(2) if m.group(2) else '10'
         X(f'{indent}<v8:Type>xs:string</v8:Type>')
         X(f'{indent}<v8:StringQualifiers>')
         X(f'{indent}\t<v8:Length>{length}</v8:Length>')

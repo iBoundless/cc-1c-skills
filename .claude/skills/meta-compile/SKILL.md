@@ -29,17 +29,17 @@ powershell.exe -NoProfile -File .claude/skills/meta-compile/scripts/meta-compile
 ### Общая структура
 
 ```json
-{ "type": "Catalog", "name": "Номенклатура", "synonym": "авто", ...свойства типа... }
+{ "type": "Catalog", "name": "Номенклатура", ...свойства типа... }
 ```
 
-`type` и `name` — обязательные. `synonym` генерируется из `name` автоматически.
+`type` и `name` — обязательные. `synonym` генерируется из `name` автоматически (CamelCase → слова через пробел). Можно задать явно: `"synonym": "Мой синоним"`.
 
 ### Shorthand реквизитов
 
 Используется в `attributes`, `dimensions`, `resources`, `tabularSections`:
 
 ```
-"ИмяРеквизита"                    → String без квалификаторов
+"ИмяРеквизита"                    → String(10) по умолчанию
 "ИмяРеквизита: Тип"               → с типом
 "ИмяРеквизита: Тип | req, index"  → с флагами
 ```
