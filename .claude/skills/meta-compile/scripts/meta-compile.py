@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# meta-compile v1.0 — Compile 1C metadata object from JSON
+# meta-compile v1.2 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -80,6 +82,27 @@ with open(json_path, 'r', encoding='utf-8-sig') as f:
     json_text = f.read()
 
 defn = json.loads(json_text)
+
+# --- Batch mode: JSON array of objects ---
+if isinstance(defn, list):
+    batch_ok = 0
+    batch_fail = 0
+    for idx, item in enumerate(defn, 1):
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.json', prefix=f'meta-compile-batch-{idx}-')
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                json.dump(item, f, ensure_ascii=False, indent=2)
+            rc = subprocess.call([sys.executable, __file__, '-JsonPath', tmp_path, '-OutputDir', output_dir])
+            if rc == 0:
+                batch_ok += 1
+            else:
+                batch_fail += 1
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    print()
+    print(f"=== Batch: {len(defn)} objects, {batch_ok} compiled, {batch_fail} failed ===")
+    sys.exit(1 if batch_fail > 0 else 0)
 
 # Normalize field synonyms: accept "objectType" as alias for "type"
 if not defn.get('type') and defn.get('objectType'):
@@ -175,6 +198,10 @@ type_synonyms = {
     'задачассылка': 'TaskRef',
     'определяемыйтип': 'DefinedType',
     'definedtype': 'DefinedType',
+    # English lowercase ref synonyms
+    'catalogref': 'CatalogRef',
+    'documentref': 'DocumentRef',
+    'enumref': 'EnumRef',
 }
 
 def resolve_type_str(type_str):
@@ -221,13 +248,23 @@ def emit_type_content(indent, type_str):
     # String or String(N)
     m = re.match(r'^String(\((\d+)\))?$', type_str)
     if m:
-        length = m.group(2) if m.group(2) else '0'
+        length = m.group(2) if m.group(2) else '10'
         X(f'{indent}<v8:Type>xs:string</v8:Type>')
         X(f'{indent}<v8:StringQualifiers>')
         X(f'{indent}\t<v8:Length>{length}</v8:Length>')
         X(f'{indent}\t<v8:AllowedLength>Variable</v8:AllowedLength>')
         X(f'{indent}</v8:StringQualifiers>')
         return
+    # Number without params -> Number(10,0)
+    if type_str == 'Number':
+        X(f'{indent}<v8:Type>xs:decimal</v8:Type>')
+        X(f'{indent}<v8:NumberQualifiers>')
+        X(f'{indent}\t<v8:Digits>10</v8:Digits>')
+        X(f'{indent}\t<v8:FractionDigits>0</v8:FractionDigits>')
+        X(f'{indent}\t<v8:AllowedSign>Any</v8:AllowedSign>')
+        X(f'{indent}</v8:NumberQualifiers>')
+        return
+
     # Number(D,F) or Number(D,F,nonneg)
     m = re.match(r'^Number\((\d+),(\d+)(,nonneg)?\)$', type_str)
     if m:
@@ -260,6 +297,11 @@ def emit_type_content(indent, type_str):
         dt_name = m.group(1)
         X(f'{indent}<v8:TypeSet>cfg:DefinedType.{dt_name}</v8:TypeSet>')
         return
+    # ValueStorage
+    if type_str == 'ValueStorage':
+        X(f'{indent}<v8:Type>xs:base64Binary</v8:Type>')
+        return
+
     # Reference types — use local xmlns declaration for 1C compatibility
     m = re.match(r'^(CatalogRef|DocumentRef|EnumRef|ChartOfAccountsRef|ChartOfCharacteristicTypesRef|ChartOfCalculationTypesRef|ExchangePlanRef|BusinessProcessRef|TaskRef)\.(.+)$', type_str)
     if m:
@@ -296,6 +338,17 @@ def emit_fill_value(indent, type_str):
 # 5. Attribute shorthand parser
 # ---------------------------------------------------------------------------
 
+def build_type_str(obj):
+    t = str(obj.get('valueType') or obj.get('type') or '')
+    if t and '(' not in t:
+        if t == 'String' and obj.get('length'):
+            t = f"String({obj['length']})"
+        elif t == 'Number' and obj.get('length'):
+            prec = obj.get('precision', 0)
+            nn = ',nonneg' if obj.get('nonneg') or obj.get('nonnegative') else ''
+            t = f"Number({obj['length']},{prec}{nn})"
+    return t
+
 def parse_attribute_shorthand(val):
     if isinstance(val, str):
         parsed = {
@@ -322,7 +375,7 @@ def parse_attribute_shorthand(val):
     name = str(val.get('name', ''))
     return {
         'name': name,
-        'type': str(val['type']) if val.get('type') else '',
+        'type': build_type_str(val),
         'synonym': str(val['synonym']) if val.get('synonym') else split_camel_case(name),
         'comment': str(val['comment']) if val.get('comment') else '',
         'flags': list(val.get('flags', [])),
@@ -406,6 +459,7 @@ generated_types = {
         {'prefix': 'CalculationRegisterList', 'category': 'List'},
         {'prefix': 'CalculationRegisterRecordSet', 'category': 'RecordSet'},
         {'prefix': 'CalculationRegisterRecordKey', 'category': 'RecordKey'},
+        {'prefix': 'RecalculationsManager', 'category': 'Recalcs'},
     ],
     'ChartOfAccounts': [
         {'prefix': 'ChartOfAccountsObject', 'category': 'Object'},
@@ -413,6 +467,8 @@ generated_types = {
         {'prefix': 'ChartOfAccountsSelection', 'category': 'Selection'},
         {'prefix': 'ChartOfAccountsList', 'category': 'List'},
         {'prefix': 'ChartOfAccountsManager', 'category': 'Manager'},
+        {'prefix': 'ChartOfAccountsExtDimensionTypes', 'category': 'ExtDimensionTypes'},
+        {'prefix': 'ChartOfAccountsExtDimensionTypesRow', 'category': 'ExtDimensionTypesRow'},
     ],
     'ChartOfCharacteristicTypes': [
         {'prefix': 'ChartOfCharacteristicTypesObject', 'category': 'Object'},
@@ -456,6 +512,9 @@ generated_types = {
         {'prefix': 'ExchangePlanSelection', 'category': 'Selection'},
         {'prefix': 'ExchangePlanList', 'category': 'List'},
         {'prefix': 'ExchangePlanManager', 'category': 'Manager'},
+    ],
+    'DefinedType': [
+        {'prefix': 'DefinedType', 'category': 'DefinedType'},
     ],
     'DocumentJournal': [
         {'prefix': 'DocumentJournalSelection', 'category': 'Selection'},
@@ -554,7 +613,40 @@ def emit_tabular_standard_attributes(indent):
 # 8. Attribute emitter
 # ---------------------------------------------------------------------------
 
+RESERVED_ATTR_NAMES = {
+    'Ref', 'DeletionMark', 'Code', 'Description', 'Date', 'Number', 'Posted',
+    'Parent', 'Owner', 'IsFolder', 'Predefined', 'PredefinedDataName',
+    'Recorder', 'Period', 'LineNumber', 'Active', 'Order', 'Type', 'OffBalance',
+    'Started', 'Completed', 'HeadTask', 'Executed', 'RoutePoint', 'BusinessProcess',
+    'ThisNode', 'SentNo', 'ReceivedNo', 'CalculationType', 'RegistrationPeriod',
+    'ReversingEntry', 'Account', 'ValueType', 'ActionPeriodIsBasic',
+}
+RESERVED_ATTR_NAMES_RU = {
+    '\u0421\u0441\u044b\u043b\u043a\u0430', '\u041f\u043e\u043c\u0435\u0442\u043a\u0430\u0423\u0434\u0430\u043b\u0435\u043d\u0438\u044f',
+    '\u041a\u043e\u0434', '\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435',
+    '\u0414\u0430\u0442\u0430', '\u041d\u043e\u043c\u0435\u0440', '\u041f\u0440\u043e\u0432\u0435\u0434\u0435\u043d',
+    '\u0420\u043e\u0434\u0438\u0442\u0435\u043b\u044c', '\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446',
+    '\u042d\u0442\u043e\u0413\u0440\u0443\u043f\u043f\u0430', '\u041f\u0440\u0435\u0434\u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u043d\u044b\u0439',
+    '\u0418\u043c\u044f\u041f\u0440\u0435\u0434\u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u043d\u044b\u0445\u0414\u0430\u043d\u043d\u044b\u0445',
+    '\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440', '\u041f\u0435\u0440\u0438\u043e\u0434',
+    '\u041d\u043e\u043c\u0435\u0440\u0421\u0442\u0440\u043e\u043a\u0438', '\u0410\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c',
+    '\u041f\u043e\u0440\u044f\u0434\u043e\u043a', '\u0422\u0438\u043f', '\u0417\u0430\u0431\u0430\u043b\u0430\u043d\u0441\u043e\u0432\u044b\u0439',
+    '\u0421\u0442\u0430\u0440\u0442\u043e\u0432\u0430\u043d', '\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043d',
+    '\u0412\u0435\u0434\u0443\u0449\u0430\u044f\u0417\u0430\u0434\u0430\u0447\u0430',
+    '\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0430', '\u0422\u043e\u0447\u043a\u0430\u041c\u0430\u0440\u0448\u0440\u0443\u0442\u0430',
+    '\u0411\u0438\u0437\u043d\u0435\u0441\u041f\u0440\u043e\u0446\u0435\u0441\u0441',
+    '\u042d\u0442\u043e\u0442\u0423\u0437\u0435\u043b', '\u041d\u043e\u043c\u0435\u0440\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0433\u043e',
+    '\u041d\u043e\u043c\u0435\u0440\u041f\u0440\u0438\u043d\u044f\u0442\u043e\u0433\u043e',
+    '\u0412\u0438\u0434\u0420\u0430\u0441\u0447\u0435\u0442\u0430', '\u041f\u0435\u0440\u0438\u043e\u0434\u0420\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0446\u0438\u0438',
+    '\u0421\u0442\u043e\u0440\u043d\u043e\u0417\u0430\u043f\u0438\u0441\u044c',
+    '\u0421\u0447\u0435\u0442', '\u0422\u0438\u043f\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u044f',
+    '\u041f\u0435\u0440\u0438\u043e\u0434\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f\u0411\u0430\u0437\u043e\u0432\u044b\u0439',
+}
+
 def emit_attribute(indent, parsed, context):
+    attr_name = parsed['name']
+    if attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU:
+        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
     uid = new_uuid()
     X(f'{indent}<Attribute uuid="{uid}">')
     X(f'{indent}\t<Properties>')
@@ -929,7 +1021,7 @@ def emit_document_properties(indent):
     if reg_records:
         X(f'{i}<RegisterRecords>')
         for rr in reg_records:
-            X(f'{i}\t<xr:Record>{rr}</xr:Record>')
+            X(f'{i}\t<xr:Item xsi:type="xr:MDObjectRef">{rr}</xr:Item>')
         X(f'{i}</RegisterRecords>')
     else:
         X(f'{i}<RegisterRecords/>')
@@ -975,7 +1067,8 @@ def emit_constant_properties(indent):
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
     X(f'{i}<Comment/>')
-    value_type = str(defn['valueType']) if defn.get('valueType') else 'String'
+    # Type
+    value_type = build_type_str(defn) or 'String'
     emit_value_type(i, value_type)
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
     X(f'{i}<DefaultForm/>')
@@ -1072,7 +1165,11 @@ def emit_defined_type_properties(indent):
     X(f'{i}<Name>{esc_xml(obj_name)}</Name>')
     emit_mltext(i, 'Synonym', synonym)
     X(f'{i}<Comment/>')
+    # Accept both valueType and valueTypes
     value_types = list(defn.get('valueTypes', []))
+    if not value_types and defn.get('valueType'):
+        vt_raw = defn['valueType']
+        value_types = list(vt_raw) if isinstance(vt_raw, list) else [vt_raw]
     if value_types:
         X(f'{i}<Type>')
         for vt in value_types:
@@ -1143,6 +1240,9 @@ def emit_scheduled_job_properties(indent):
     emit_mltext(i, 'Synonym', synonym)
     X(f'{i}<Comment/>')
     method_name = str(defn['methodName']) if defn.get('methodName') else ''
+    # Ensure CommonModule. prefix
+    if method_name and not method_name.startswith('CommonModule.'):
+        method_name = f'CommonModule.{method_name}'
     X(f'{i}<MethodName>{esc_xml(method_name)}</MethodName>')
     description = str(defn['description']) if defn.get('description') else synonym
     X(f'{i}<Description>{esc_xml(description)}</Description>')
@@ -1174,6 +1274,9 @@ def emit_event_subscription_properties(indent):
     event = str(defn['event']) if defn.get('event') else 'BeforeWrite'
     X(f'{i}<Event>{event}</Event>')
     handler = str(defn['handler']) if defn.get('handler') else ''
+    # Ensure CommonModule. prefix
+    if handler and not handler.startswith('CommonModule.'):
+        handler = f'CommonModule.{handler}'
     X(f'{i}<Handler>{esc_xml(handler)}</Handler>')
 
 # --- 13b. Report, DataProcessor ---
@@ -1250,18 +1353,12 @@ def emit_exchange_plan_properties(indent):
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '100'
-    code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
     code_allowed_length = str(defn['codeAllowedLength']) if defn.get('codeAllowedLength') else 'Variable'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
-    check_unique = 'true' if defn.get('checkUnique') is True else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
-    X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
     X(f'{i}<EditType>InDialog</EditType>')
-    X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
-    X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     emit_standard_attributes(i, 'ExchangePlan')
     distributed = 'true' if defn.get('distributedInfoBase') is True else 'false'
     include_ext = 'true' if defn.get('includeConfigurationExtensions') is True else 'false'
@@ -1308,12 +1405,10 @@ def emit_chart_of_characteristic_types_properties(indent):
     X(f'{i}<UseStandardCommands>true</UseStandardCommands>')
     code_length = str(defn['codeLength']) if defn.get('codeLength') is not None else '9'
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
-    code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
     code_allowed_length = str(defn['codeAllowedLength']) if defn.get('codeAllowedLength') else 'Variable'
     autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
     check_unique = 'true' if defn.get('checkUnique') is True else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
-    X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
@@ -1335,7 +1430,7 @@ def emit_chart_of_characteristic_types_properties(indent):
         X(f'{i}\t<v8:Type>xs:boolean</v8:Type>')
         X(f'{i}\t<v8:Type>xs:string</v8:Type>')
         X(f'{i}\t<v8:StringQualifiers>')
-        X(f'{i}\t\t<v8:Length>0</v8:Length>')
+        X(f'{i}\t\t<v8:Length>100</v8:Length>')
         X(f'{i}\t\t<v8:AllowedLength>Variable</v8:AllowedLength>')
         X(f'{i}\t</v8:StringQualifiers>')
         X(f'{i}\t<v8:Type>xs:decimal</v8:Type>')
@@ -1457,12 +1552,9 @@ def emit_chart_of_accounts_properties(indent):
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<CodeSeries>{code_series}</CodeSeries>')
     X(f'{i}<CheckUnique>false</CheckUnique>')
-    X(f'{i}<Autonumbering>true</Autonumbering>')
     X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
     X(f'{i}<AutoOrderByCode>{auto_order}</AutoOrderByCode>')
     X(f'{i}<OrderLength>{order_length}</OrderLength>')
-    hierarchical = 'true' if defn.get('hierarchical') is True else 'false'
-    X(f'{i}<Hierarchical>{hierarchical}</Hierarchical>')
     X(f'{i}<EditType>InDialog</EditType>')
     emit_standard_attributes(i, 'ChartOfAccounts')
     X(f'{i}<StandardTabularSections>')
@@ -1545,16 +1637,12 @@ def emit_chart_of_calculation_types_properties(indent):
     description_length = str(defn['descriptionLength']) if defn.get('descriptionLength') is not None else '25'
     code_type = str(defn['codeType']) if defn.get('codeType') else 'String'
     code_allowed_length = str(defn['codeAllowedLength']) if defn.get('codeAllowedLength') else 'Variable'
-    autonumbering = 'false' if defn.get('autonumbering') is False else 'true'
-    check_unique = 'true' if defn.get('checkUnique') is True else 'false'
     X(f'{i}<CodeLength>{code_length}</CodeLength>')
     X(f'{i}<CodeType>{code_type}</CodeType>')
     X(f'{i}<CodeAllowedLength>{code_allowed_length}</CodeAllowedLength>')
     X(f'{i}<DescriptionLength>{description_length}</DescriptionLength>')
     X(f'{i}<DefaultPresentation>AsDescription</DefaultPresentation>')
-    X(f'{i}<CheckUnique>{check_unique}</CheckUnique>')
-    X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
-    dependence = str(defn['dependenceOnCalculationTypes']) if defn.get('dependenceOnCalculationTypes') else 'NotUsed'
+    dependence = str(defn['dependenceOnCalculationTypes']) if defn.get('dependenceOnCalculationTypes') else 'DontUse'
     X(f'{i}<DependenceOnCalculationTypes>{dependence}</DependenceOnCalculationTypes>')
     base_types = list(defn.get('baseCalculationTypes', []))
     if base_types:
@@ -1664,6 +1752,11 @@ def emit_business_process_properties(indent):
     X(f'{i}<Autonumbering>{autonumbering}</Autonumbering>')
     emit_standard_attributes(i, 'BusinessProcess')
     X(f'{i}<Characteristics/>')
+    task_ref = str(defn['task']) if defn.get('task') else ''
+    if task_ref:
+        X(f'{i}<Task>{task_ref}</Task>')
+    else:
+        X(f'{i}<Task/>')
     X(f'{i}<BasedOn/>')
     X(f'{i}<InputByString>')
     X(f'{i}\t<xr:Field>BusinessProcess.{obj_name}.StandardAttribute.Number</xr:Field>')
@@ -1994,14 +2087,11 @@ def emit_addressing_attribute(indent, addr_def):
     type_str = ''
     addressing_dimension = ''
     indexing = 'Index'
-    if isinstance(addr_def, str):
-        name = addr_def
-        attr_synonym = split_camel_case(name)
-    else:
-        name = str(addr_def.get('name', ''))
-        attr_synonym = str(addr_def['synonym']) if addr_def.get('synonym') else split_camel_case(name)
-        if addr_def.get('type'):
-            type_str = str(addr_def['type'])
+    parsed = parse_attribute_shorthand(addr_def)
+    name = parsed['name']
+    attr_synonym = parsed['synonym']
+    type_str = parsed['type']
+    if not isinstance(addr_def, str):
         if addr_def.get('addressingDimension'):
             addressing_dimension = str(addr_def['addressingDimension'])
         if addr_def.get('indexing'):
@@ -2335,14 +2425,14 @@ if obj_type in types_with_module:
 if obj_type == 'ExchangePlan':
     content_path = os.path.join(ext_dir, 'Content.xml')
     if not os.path.isfile(content_path):
-        content_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>\r\n'
+        content_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<ExchangePlanContent xmlns="http://v8.1c.ru/8.3/xcf/extrnprops" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" version="2.17"/>\r\n'
         write_utf8_bom(content_path, content_xml)
         modules_created.append(content_path)
 
 if obj_type == 'BusinessProcess':
     flowchart_path = os.path.join(ext_dir, 'Flowchart.xml')
     if not os.path.isfile(flowchart_path):
-        flowchart_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<Flowchart xmlns="http://v8.1c.ru/8.3/MDClasses"/>\r\n'
+        flowchart_xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n<Flowchart xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17"/>\r\n'
         write_utf8_bom(flowchart_path, flowchart_xml)
         modules_created.append(flowchart_path)
 
@@ -2464,3 +2554,19 @@ elif reg_result == 'no-childobj':
     print('WARNING: Configuration.xml found but <ChildObjects> not found', file=sys.stderr)
 elif reg_result == 'no-config':
     print(f'     Configuration.xml: not found at {config_xml_path} (register manually)')
+
+# Cross-reference hints
+if obj_type == 'AccountingRegister' and not defn.get('chartOfAccounts'):
+    print('[HINT] AccountingRegister requires ChartOfAccounts reference:')
+    print('       /meta-edit -Operation modify-property -Value "ChartOfAccounts=ChartOfAccounts.XXX"')
+if obj_type == 'CalculationRegister' and not defn.get('chartOfCalculationTypes'):
+    print('[HINT] CalculationRegister requires ChartOfCalculationTypes reference:')
+    print('       /meta-edit -Operation modify-property -Value "ChartOfCalculationTypes=ChartOfCalculationTypes.XXX"')
+if obj_type == 'BusinessProcess' and not defn.get('task'):
+    print('[HINT] BusinessProcess requires Task reference:')
+    print('       /meta-edit -Operation modify-property -Value "Task=Task.XXX"')
+if obj_type == 'ChartOfAccounts':
+    max_ext_dim = int(defn['maxExtDimensionCount']) if defn.get('maxExtDimensionCount') is not None else 0
+    if max_ext_dim > 0 and not defn.get('extDimensionTypes'):
+        print('[HINT] ChartOfAccounts with MaxExtDimensionCount>0 requires ExtDimensionTypes:')
+        print('       /meta-edit -Operation modify-property -Value "ExtDimensionTypes=ChartOfCharacteristicTypes.XXX"')

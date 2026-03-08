@@ -1,8 +1,9 @@
-# meta-validate v1.0 — Validate 1C metadata object structure (Python port)
+# meta-validate v1.1 — Validate 1C metadata object structure (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 from lxml import etree
@@ -18,9 +19,31 @@ parser.add_argument("-MaxErrors", type=int, default=30)
 parser.add_argument("-OutFile", default="")
 args = parser.parse_args()
 
-object_path = args.ObjectPath
 max_errors = args.MaxErrors
 out_file = args.OutFile
+
+# ── batch mode: pipe-separated paths ─────────────────────────
+
+path_list = [p.strip() for p in args.ObjectPath.split('|') if p.strip()]
+if len(path_list) > 1:
+    batch_ok = 0
+    batch_fail = 0
+    for single_path in path_list:
+        cmd = [sys.executable, __file__, "-ObjectPath", single_path, "-MaxErrors", str(max_errors)]
+        if out_file:
+            base, ext = os.path.splitext(out_file)
+            obj_leaf = os.path.splitext(os.path.basename(single_path))[0]
+            cmd += ["-OutFile", f"{base}_{obj_leaf}{ext}"]
+        rc = subprocess.call(cmd)
+        if rc == 0:
+            batch_ok += 1
+        else:
+            batch_fail += 1
+    print()
+    print(f"=== Batch: {len(path_list)} objects, {batch_ok} passed, {batch_fail} failed ===")
+    sys.exit(1 if batch_fail > 0 else 0)
+
+object_path = path_list[0]
 
 # ── resolve path ─────────────────────────────────────────────
 
@@ -58,6 +81,18 @@ if not os.path.exists(object_path):
     sys.exit(1)
 
 resolved_path = os.path.abspath(object_path)
+
+# ── detect config directory (for cross-object checks) ────────
+
+config_dir = None
+probe = os.path.dirname(resolved_path)
+for _ in range(4):
+    if not probe:
+        break
+    if os.path.exists(os.path.join(probe, "Configuration.xml")):
+        config_dir = probe
+        break
+    probe = os.path.dirname(probe)
 
 # ── output infrastructure ────────────────────────────────────
 
@@ -216,6 +251,15 @@ valid_property_values = {
     "FillChecking":                 ["DontCheck", "ShowError", "ShowWarning"],
     "Indexing":                     ["DontIndex", "Index", "IndexWithAdditionalOrder"],
     "DataHistory":                  ["Use", "DontUse"],
+    "DependenceOnCalculationTypes": ["DontUse", "RequireCalculationTypes"],
+}
+
+# Properties forbidden per type (would cause LoadConfigFromFiles error)
+forbidden_properties = {
+    "ChartOfCharacteristicTypes": ["CodeType"],
+    "ChartOfAccounts":            ["Autonumbering", "Hierarchical"],
+    "ChartOfCalculationTypes":    ["CheckUnique", "Autonumbering"],
+    "ExchangePlan":               ["CodeType", "CheckUnique", "Autonumbering"],
 }
 
 # ── Namespaces ───────────────────────────────────────────────
@@ -626,6 +670,37 @@ if stopped:
     finalize()
     sys.exit(1)
 
+# ── Check 7b: Reserved attribute names ───────────────────────
+
+RESERVED_ATTR_NAMES = {
+    'Ref', 'DeletionMark', 'Code', 'Description', 'Date', 'Number', 'Posted',
+    'Parent', 'Owner', 'IsFolder', 'Predefined', 'PredefinedDataName',
+    'Recorder', 'Period', 'LineNumber', 'Active', 'Order', 'Type', 'OffBalance',
+    'Started', 'Completed', 'HeadTask', 'Executed', 'RoutePoint', 'BusinessProcess',
+    'ThisNode', 'SentNo', 'ReceivedNo', 'CalculationType', 'RegistrationPeriod',
+    'ReversingEntry', 'Account', 'ValueType', 'ActionPeriodIsBasic',
+}
+
+if child_obj_node is not None:
+    check7b_ok = True
+    for attr_node in find_all(child_obj_node, 'md:Attribute'):
+        attr_props = find(attr_node, 'md:Properties')
+        if attr_props is not None:
+            attr_name_node = find(attr_props, 'md:Name')
+            if attr_name_node is not None and inner_text(attr_name_node):
+                an = inner_text(attr_name_node)
+                if an in RESERVED_ATTR_NAMES:
+                    report_warn(f"7b. Attribute '{an}' conflicts with a standard attribute name")
+                    check7b_ok = False
+    if check7b_ok:
+        report_ok("7b. Reserved attribute names: no conflicts")
+else:
+    report_ok("7b. Reserved attribute names: N/A")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
 # ── Check 8: Name uniqueness ─────────────────────────────────
 
 
@@ -841,6 +916,88 @@ if props_node is not None:
             check10_ok = False
             check10_issues += 1
 
+    # AccountingRegister: ChartOfAccounts must not be empty
+    if md_type == 'AccountingRegister':
+        coa = find(props_node, 'md:ChartOfAccounts')
+        if coa is None or not text_of(coa):
+            report_error('10. AccountingRegister: empty ChartOfAccounts')
+            check10_ok = False
+            check10_issues += 1
+            print('[HINT] /meta-edit -Operation modify-property -Value "ChartOfAccounts=ChartOfAccounts.XXX"')
+
+    # CalculationRegister: ChartOfCalculationTypes must not be empty
+    if md_type == 'CalculationRegister':
+        coct = find(props_node, 'md:ChartOfCalculationTypes')
+        if coct is None or not text_of(coct):
+            report_error('10. CalculationRegister: empty ChartOfCalculationTypes')
+            check10_ok = False
+            check10_issues += 1
+            print('[HINT] /meta-edit -Operation modify-property -Value "ChartOfCalculationTypes=ChartOfCalculationTypes.XXX"')
+
+    # BusinessProcess: Task should not be empty
+    if md_type == 'BusinessProcess':
+        task_prop = find(props_node, 'md:Task')
+        if task_prop is None or not text_of(task_prop):
+            report_warn('10. BusinessProcess: empty Task reference')
+            check10_issues += 1
+            print('[HINT] /meta-edit -Operation modify-property -Value "Task=Task.XXX"')
+
+    # DocumentJournal: RegisteredDocuments should not be empty
+    if md_type == 'DocumentJournal':
+        reg_docs = find(props_node, 'md:RegisteredDocuments')
+        has_reg_docs = False
+        if reg_docs is not None:
+            items = find_all(reg_docs, 'v8:Type')
+            if len(items) > 0:
+                has_reg_docs = True
+        if not has_reg_docs:
+            report_warn('10. DocumentJournal: no RegisteredDocuments specified')
+            check10_issues += 1
+
+    # ChartOfAccounts: ExtDimensionTypes should be set if MaxExtDimensionCount > 0
+    if md_type == 'ChartOfAccounts':
+        max_ext_dim = find(props_node, 'md:MaxExtDimensionCount')
+        if max_ext_dim is not None:
+            try:
+                med_val = int(inner_text(max_ext_dim) or '0')
+            except ValueError:
+                med_val = 0
+            if med_val > 0:
+                edt = find(props_node, 'md:ExtDimensionTypes')
+                if edt is None or not text_of(edt):
+                    report_warn('10. ChartOfAccounts: MaxExtDimensionCount>0 but ExtDimensionTypes is empty')
+                    check10_issues += 1
+                    print('[HINT] /meta-edit -Operation modify-property -Value "ExtDimensionTypes=ChartOfCharacteristicTypes.XXX"')
+
+    # Register: must have at least one registrar document
+    register_types = ('AccumulationRegister', 'AccountingRegister', 'CalculationRegister', 'InformationRegister')
+    if md_type in register_types and config_dir and obj_name != '(unknown)':
+        needs_registrar = True
+        # InformationRegister with WriteMode=Independent does not need a registrar
+        if md_type == 'InformationRegister':
+            write_mode = find(props_node, 'md:WriteMode')
+            if write_mode is None or inner_text(write_mode) != 'RecorderSubordinate':
+                needs_registrar = False
+        if needs_registrar:
+            reg_ref = f'{md_type}.{obj_name}'
+            docs_dir = os.path.join(config_dir, 'Documents')
+            has_registrar = False
+            if os.path.isdir(docs_dir):
+                for fname in os.listdir(docs_dir):
+                    if not fname.endswith('.xml'):
+                        continue
+                    fpath = os.path.join(docs_dir, fname)
+                    if not os.path.isfile(fpath):
+                        continue
+                    with open(fpath, 'r', encoding='utf-8-sig') as f:
+                        content = f.read()
+                    if reg_ref in content:
+                        has_registrar = True
+                        break
+            if not has_registrar:
+                report_warn(f"10. {md_type}: no registrar document found (none references '{reg_ref}' in RegisterRecords)")
+                check10_issues += 1
+
 if check10_ok and check10_issues == 0:
     report_ok("10. Cross-property consistency")
 
@@ -928,6 +1085,120 @@ elif md_type == "WebService" and child_obj_node is not None:
         report_ok(f"11. WebService: {len(operations)} operation(s), {param_count} parameter(s)")
 else:
     report_ok("11. HTTPService/WebService: N/A")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
+# ── Check 12: Forbidden properties per type ──────────────────
+
+if props_node is not None and md_type in forbidden_properties:
+    forbidden = forbidden_properties[md_type]
+    check12_ok = True
+    for fp in forbidden:
+        fp_node = find(props_node, f"md:{fp}")
+        if fp_node is not None:
+            report_error(f"12. Forbidden property '{fp}' present in {md_type} (will fail on LoadConfigFromFiles)")
+            check12_ok = False
+    if check12_ok:
+        report_ok("12. Forbidden properties: none found")
+else:
+    report_ok("12. Forbidden properties: N/A")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
+# ── Check 13: Method reference validation ─────────────────────
+
+if props_node is not None and md_type in ("EventSubscription", "ScheduledJob") and config_dir:
+    check13_ok = True
+    method_ref = None
+    prop_label = None
+
+    if md_type == "EventSubscription":
+        h_node = find(props_node, "md:Handler")
+        if h_node is not None:
+            method_ref = text_of(h_node)
+        prop_label = "Handler"
+    elif md_type == "ScheduledJob":
+        m_node = find(props_node, "md:MethodName")
+        if m_node is not None:
+            method_ref = text_of(m_node)
+        prop_label = "MethodName"
+
+    if method_ref:
+        parts = method_ref.split(".")
+        # Format: CommonModule.ModuleName.ProcedureName (3 parts) or ModuleName.ProcedureName (2 parts, legacy)
+        if len(parts) == 3 and parts[0] == "CommonModule":
+            cm_name = parts[1]
+            proc_name = parts[2]
+        elif len(parts) == 2:
+            cm_name = parts[0]
+            proc_name = parts[1]
+        else:
+            report_error(f"13. {md_type}.{prop_label} = '{method_ref}': expected format 'CommonModule.ModuleName.ProcedureName'")
+            check13_ok = False
+            cm_name = None
+            proc_name = None
+        if cm_name:
+            cm_xml = os.path.join(config_dir, "CommonModules", f"{cm_name}.xml")
+            if not os.path.exists(cm_xml):
+                report_error(f"13. {md_type}.{prop_label}: CommonModule '{cm_name}' not found (expected {cm_xml})")
+                check13_ok = False
+            else:
+                # Check BSL file for exported procedure
+                bsl_path = os.path.join(config_dir, "CommonModules", cm_name, "Ext", "Module.bsl")
+                if os.path.exists(bsl_path):
+                    with open(bsl_path, "r", encoding="utf-8-sig") as f:
+                        bsl_content = f.read()
+                    export_pattern = rf"(?mi)^\s*(Procedure|Function|Процедура|Функция)\s+{re.escape(proc_name)}\s*\(.*\)\s+(Export|Экспорт)"
+                    if not re.search(export_pattern, bsl_content):
+                        report_warn(f"13. {md_type}.{prop_label}: procedure '{proc_name}' not found as exported in CommonModule '{cm_name}'")
+                        check13_ok = False
+                else:
+                    report_warn(f"13. {md_type}.{prop_label}: BSL file not found ({bsl_path}), cannot verify procedure")
+
+    if check13_ok:
+        report_ok(f"13. Method reference: {prop_label} = '{method_ref}'")
+else:
+    report_ok("13. Method reference: N/A")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
+# ── Check 14: DocumentJournal Column content ──────────────────
+
+if md_type == "DocumentJournal" and child_obj_node is not None:
+    columns = find_all(child_obj_node, "md:Column")
+    check14_ok = True
+    col_count = 0
+    empty_ref_count = 0
+
+    for col in columns:
+        col_count += 1
+        col_props = find(col, "md:Properties")
+        col_name_node = find(col_props, "md:Name") if col_props is not None else None
+        col_name = inner_text(col_name_node) if col_name_node is not None else "(unnamed)"
+
+        refs = find(col_props, "md:References") if col_props is not None else None
+        has_items = False
+        if refs is not None:
+            items = find_all(refs, "xr:Item")
+            if len(items) > 0:
+                has_items = True
+        if not has_items:
+            report_error(f"14. DocumentJournal Column '{col_name}': empty References (will fail on LoadConfigFromFiles)")
+            check14_ok = False
+            empty_ref_count += 1
+
+    if check14_ok and col_count > 0:
+        report_ok(f"14. DocumentJournal Columns: {col_count} column(s), all have References")
+    elif col_count == 0:
+        report_ok("14. DocumentJournal Columns: none")
+else:
+    report_ok("14. DocumentJournal Columns: N/A")
 
 # ── Final output ──────────────────────────────────────────────
 

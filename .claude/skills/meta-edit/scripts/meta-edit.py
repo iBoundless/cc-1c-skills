@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.0 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.4 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -214,7 +214,7 @@ def build_type_content_xml(indent, type_str):
     # String or String(N)
     m = re.match(r"^String(\((\d+)\))?$", type_str)
     if m:
-        length = m.group(2) if m.group(2) else "0"
+        length = m.group(2) if m.group(2) else "10"
         lines.append(f"{indent}<v8:Type>xs:string</v8:Type>")
         lines.append(f"{indent}<v8:StringQualifiers>")
         lines.append(f"{indent}\t<v8:Length>{length}</v8:Length>")
@@ -600,10 +600,38 @@ def get_attribute_context():
     return "object"
 
 
+RESERVED_ATTR_NAMES = {
+    'Ref', 'DeletionMark', 'Code', 'Description', 'Date', 'Number', 'Posted',
+    'Parent', 'Owner', 'IsFolder', 'Predefined', 'PredefinedDataName',
+    'Recorder', 'Period', 'LineNumber', 'Active', 'Order', 'Type', 'OffBalance',
+    'Started', 'Completed', 'HeadTask', 'Executed', 'RoutePoint', 'BusinessProcess',
+    'ThisNode', 'SentNo', 'ReceivedNo', 'CalculationType', 'RegistrationPeriod',
+    'ReversingEntry', 'Account', 'ValueType', 'ActionPeriodIsBasic',
+}
+RESERVED_ATTR_NAMES_RU = {
+    'Ссылка', 'ПометкаУдаления', 'Код', 'Наименование',
+    'Дата', 'Номер', 'Проведен', 'Родитель', 'Владелец',
+    'ЭтоГруппа', 'Предопределенный', 'ИмяПредопределенныхДанных',
+    'Регистратор', 'Период', 'НомерСтроки', 'Активность',
+    'Порядок', 'Тип', 'Забалансовый',
+    'Стартован', 'Завершен', 'ВедущаяЗадача',
+    'Выполнена', 'ТочкаМаршрута', 'БизнесПроцесс',
+    'ЭтотУзел', 'НомерОтправленного', 'НомерПринятого',
+    'ВидРасчета', 'ПериодРегистрации', 'СторноЗапись',
+    'Счет', 'ТипЗначения', 'ПериодДействияБазовый',
+}
+
+
 def build_attribute_fragment(parsed, context, indent):
     """Build XML fragment string for an Attribute element."""
     if not context:
         context = get_attribute_context()
+
+    # Check reserved attribute names
+    attr_name = parsed['name']
+    if attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU:
+        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
+
     uid = new_uuid()
     lines = []
 

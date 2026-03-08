@@ -1,4 +1,4 @@
-﻿# meta-edit v1.3 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+﻿# meta-edit v1.4 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 param(
 	[string]$DefinitionFile,
@@ -297,7 +297,7 @@ function Build-TypeContentXml {
 
 	# String or String(N)
 	if ($typeStr -match '^String(\((\d+)\))?$') {
-		$len = if ($Matches[2]) { $Matches[2] } else { "0" }
+		$len = if ($Matches[2]) { $Matches[2] } else { "10" }
 		$sb.AppendLine("$indent<v8:Type>xs:string</v8:Type>") | Out-Null
 		$sb.AppendLine("$indent<v8:StringQualifiers>") | Out-Null
 		$sb.AppendLine("$indent`t<v8:Length>$len</v8:Length>") | Out-Null
@@ -689,10 +689,34 @@ function Get-AttributeContext {
 	}
 }
 
+$script:reservedAttrNames = @{
+	"Ref"="Ссылка"; "DeletionMark"="ПометкаУдаления"; "Code"="Код"; "Description"="Наименование"
+	"Date"="Дата"; "Number"="Номер"; "Posted"="Проведен"; "Parent"="Родитель"; "Owner"="Владелец"
+	"IsFolder"="ЭтоГруппа"; "Predefined"="Предопределенный"; "PredefinedDataName"="ИмяПредопределенныхДанных"
+	"Recorder"="Регистратор"; "Period"="Период"; "LineNumber"="НомерСтроки"; "Active"="Активность"
+	"Order"="Порядок"; "Type"="Тип"; "OffBalance"="Забалансовый"
+	"Started"="Стартован"; "Completed"="Завершен"; "HeadTask"="ВедущаяЗадача"
+	"Executed"="Выполнена"; "RoutePoint"="ТочкаМаршрута"; "BusinessProcess"="БизнесПроцесс"
+	"ThisNode"="ЭтотУзел"; "SentNo"="НомерОтправленного"; "ReceivedNo"="НомерПринятого"
+	"CalculationType"="ВидРасчета"; "RegistrationPeriod"="ПериодРегистрации"; "ReversingEntry"="СторноЗапись"
+	"Account"="Счет"; "ValueType"="ТипЗначения"; "ActionPeriodIsBasic"="ПериодДействияБазовый"
+}
+
 function Build-AttributeFragment {
 	param($parsed, [string]$context, [string]$indent)
 
 	if (-not $context) { $context = Get-AttributeContext }
+
+	# Check reserved attribute names
+	$attrName = $parsed.name
+	if ($script:reservedAttrNames.ContainsKey($attrName)) {
+		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name. This may cause errors when loading into 1C."
+	}
+	$ruValues = $script:reservedAttrNames.Values
+	if ($ruValues -contains $attrName) {
+		Write-Warning "Attribute '$attrName' conflicts with a standard attribute name (Russian). This may cause errors when loading into 1C."
+	}
+
 	$uuid = New-Guid-String
 	$sb = New-Object System.Text.StringBuilder
 
