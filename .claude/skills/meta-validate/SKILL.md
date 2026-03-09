@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет XML объекта метаданных из выгрузки конфигурации на структурные ошибки.
 
-## Использование
-
-```
-/meta-validate Catalogs/Номенклатура/Номенклатура.xml
-/meta-validate Catalogs/Банки|Documents/Заказ     — batch mode
-```
-
 ## Параметры
 
 | Параметр   | Обяз. | Умолч. | Описание                                      |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/meta-validate/scripts/meta-validate.ps1 -ObjectPath "Catalogs/Номенклатура/Номенклатура.xml"
+powershell.exe -NoProfile -File .claude/skills/meta-validate/scripts/meta-validate.ps1 -ObjectPath "Catalogs/Банки|Documents/Заказ"
 ```
 
 ## Поддерживаемые типы (23)

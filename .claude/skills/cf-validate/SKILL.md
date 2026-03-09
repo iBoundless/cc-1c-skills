@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет Configuration.xml на структурные ошибки: XML well-formedness, InternalInfo, свойства, enum-значения, ChildObjects, DefaultLanguage, файлы языков, каталоги объектов.
 
-## Использование
-
-```
-/cf-validate upload/cfempty
-/cf-validate upload/cfempty/Configuration.xml
-```
-
 ## Параметры
 
 | Параметр   | Обяз. | Умолч. | Описание                                      |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/cf-validate/scripts/cf-validate.ps1 -ConfigPath "upload/cfempty"
+powershell.exe -NoProfile -File .claude/skills/cf-validate/scripts/cf-validate.ps1 -ConfigPath "upload/cfempty/Configuration.xml"
 ```
 
 ## Проверки

@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет структурную корректность Template.xml схемы компоновки данных. Выявляет ошибки формата, битые ссылки, дубликаты имён.
 
-## Использование
-
-```
-/skd-validate src/МойОтчёт/Templates/ОсновнаяСхема
-/skd-validate Catalogs/Номенклатура/Templates/СКД/Ext/Template.xml
-```
-
 ## Параметры
 
 | Параметр     | Обяз. | Умолч. | Описание                                              |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/skd-validate/scripts/skd-validate.ps1 -TemplatePath "src/МойОтчёт/Templates/ОсновнаяСхема"
+powershell.exe -NoProfile -File .claude/skills/skd-validate/scripts/skd-validate.ps1 -TemplatePath "Catalogs/Номенклатура/Templates/СКД/Ext/Template.xml"
 ```
 
 ## Проверки (~30)

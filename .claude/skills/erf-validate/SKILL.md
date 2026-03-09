@@ -14,13 +14,6 @@ allowed-tools:
 
 Использует тот же скрипт, что и `/epf-validate` — автоопределение по типу элемента (ExternalReport).
 
-## Использование
-
-```
-/erf-validate src/МойОтчёт
-/erf-validate src/МойОтчёт/МойОтчёт.xml
-```
-
 ## Параметры
 
 | Параметр   | Обяз. | Умолч. | Описание                                      |
@@ -34,6 +27,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МойОтчёт"
+powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МойОтчёт/МойОтчёт.xml"
 ```
 
 ## Проверки

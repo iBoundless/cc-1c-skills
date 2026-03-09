@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет структурную корректность XML-исходников внешней обработки: корневую структуру, InternalInfo, свойства, ChildObjects, реквизиты, табличные части, уникальность имён, наличие файлов форм и макетов. Также работает для внешних отчётов (ERF).
 
-## Использование
-
-```
-/epf-validate src/МояОбработка
-/epf-validate src/МояОбработка/МояОбработка.xml
-```
-
 ## Параметры
 
 | Параметр   | Обяз. | Умолч. | Описание                                      |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МояОбработка"
+powershell.exe -NoProfile -File .claude/skills/epf-validate/scripts/epf-validate.ps1 -ObjectPath "src/МояОбработка/МояОбработка.xml"
 ```
 
 ## Проверки

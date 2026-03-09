@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет структурную корректность расширения: XML-формат, свойства, состав, заимствованные объекты. Аналог `/cf-validate`, но для расширений.
 
-## Использование
-
-```
-/cfe-validate src
-/cfe-validate src/Configuration.xml
-```
-
 ## Параметры
 
 | Параметр      | Обяз. | Умолч. | Описание                                        |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath "src"
+powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate.ps1 -ExtensionPath "src/Configuration.xml"
 ```
 
 ## Проверки (9 шагов)

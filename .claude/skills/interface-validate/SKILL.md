@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет XML командного интерфейса на структурные ошибки: корневой элемент, допустимые секции, порядок, формат ссылок на команды, дубликаты.
 
-## Использование
-
-```
-/interface-validate Subsystems/Продажи
-/interface-validate Subsystems/Продажи/Ext/CommandInterface.xml
-```
-
 ## Параметры
 
 | Параметр  | Обяз. | Умолч. | Описание                                |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File ".claude/skills/interface-validate/scripts/interface-validate.ps1" -CIPath "Subsystems/Продажи"
+powershell.exe -NoProfile -File ".claude/skills/interface-validate/scripts/interface-validate.ps1" -CIPath "Subsystems/Продажи/Ext/CommandInterface.xml"
 ```
 
 ## Проверки (13)

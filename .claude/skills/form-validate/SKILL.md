@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет Form.xml на структурные ошибки: уникальность ID, наличие companion-элементов, корректность ссылок DataPath и команд.
 
-## Использование
-
-```
-/form-validate Catalogs/Номенклатура/Forms/ФормаЭлемента
-/form-validate src/МояОбработка/Forms/Форма/Ext/Form.xml
-```
-
 ## Параметры
 
 | Параметр  | Обяз. | Умолч. | Описание                                |
@@ -31,6 +24,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/form-validate/scripts/form-validate.ps1 -FormPath "Catalogs/Номенклатура/Forms/ФормаЭлемента"
+powershell.exe -NoProfile -File .claude/skills/form-validate/scripts/form-validate.ps1 -FormPath "src/МояОбработка/Forms/Форма/Ext/Form.xml"
 ```
 
 ## Проверки

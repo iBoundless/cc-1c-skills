@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет структурную корректность XML-файла подсистемы из выгрузки конфигурации.
 
-## Использование
-
-```
-/subsystem-validate Subsystems/Продажи
-/subsystem-validate Subsystems/Продажи.xml
-```
-
 ## Параметры
 
 | Параметр      | Обяз. | Умолч. | Описание                                  |
@@ -32,6 +25,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File ".claude/skills/subsystem-validate/scripts/subsystem-validate.ps1" -SubsystemPath "Subsystems/Продажи"
+powershell.exe -NoProfile -File ".claude/skills/subsystem-validate/scripts/subsystem-validate.ps1" -SubsystemPath "Subsystems/Продажи.xml"
 ```
 
 ## Проверки (13)

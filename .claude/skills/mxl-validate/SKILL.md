@@ -12,13 +12,6 @@ allowed-tools:
 
 Проверяет Template.xml на структурные ошибки: индексы, ссылки на палитры, диапазоны именованных областей и объединений.
 
-## Использование
-
-```
-/mxl-validate Catalogs/Номенклатура/Templates/Макет
-/mxl-validate src/МояОбработка/Templates/ПечатнаяФорма
-```
-
 ## Параметры
 
 | Параметр      | Обяз. | Умолч. | Описание                                 |
@@ -31,6 +24,7 @@ allowed-tools:
 
 ```powershell
 powershell.exe -NoProfile -File .claude/skills/mxl-validate/scripts/mxl-validate.ps1 -TemplatePath "Catalogs/Номенклатура/Templates/Макет"
+powershell.exe -NoProfile -File .claude/skills/mxl-validate/scripts/mxl-validate.ps1 -TemplatePath "src/МояОбработка/Templates/ПечатнаяФорма"
 ```
 
 ## Проверки
