@@ -671,12 +671,12 @@ def main():
 
         ns_strip_pattern = re.compile(r'\s+xmlns(?::\w+)?="[^"]*"')
 
-        # AutoCommandBar: strip ChildItems (buttons), replace CommandName→0, Autofill→false
+        # AutoCommandBar: keep ChildItems (buttons with CommandName→0), Autofill→false
         auto_cmd_xml = ""
         if src_auto_cmd is not None:
             auto_cmd_xml = etree.tostring(src_auto_cmd, encoding="unicode")
             auto_cmd_xml = ns_strip_pattern.sub("", auto_cmd_xml)
-            auto_cmd_xml = re.sub(r'\s*<ChildItems>.*?</ChildItems>', '', auto_cmd_xml, flags=re.DOTALL)
+            auto_cmd_xml = re.sub(r'<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>', auto_cmd_xml)
             auto_cmd_xml = auto_cmd_xml.replace('<Autofill>true</Autofill>', '<Autofill>false</Autofill>')
 
         # ChildItems: copy full tree, clean up base-config references

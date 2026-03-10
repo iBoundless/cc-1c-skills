@@ -500,12 +500,12 @@ function Borrow-Form {
 	# Get OuterXml and strip redundant namespace redeclarations (they're on root <Form>)
 	$nsStripPattern = '\s+xmlns(?::\w+)?="[^"]*"'
 
-	# AutoCommandBar: strip ChildItems (buttons), replace CommandName→0, Autofill→false
+	# AutoCommandBar: keep ChildItems (buttons with CommandName→0), Autofill→false
 	$autoCmdXml = ""
 	if ($srcAutoCmd) {
 		$autoCmdXml = $srcAutoCmd.OuterXml
 		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
-		$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<ChildItems>.*?</ChildItems>', '')
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
 		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
 	}
 
