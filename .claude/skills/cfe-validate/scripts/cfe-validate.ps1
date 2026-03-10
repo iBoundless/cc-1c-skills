@@ -801,17 +801,6 @@ foreach ($fi in $script:formList) {
 		if ($formRawText -notmatch '<BaseForm[^>]+version=') {
 			Report-Warn "11. ${ctx}: <BaseForm> missing version attribute"
 		}
-		# Extract BaseForm content for DataPath/TitleDataPath checks (only inside BaseForm, not in extension elements)
-		$bfMatch = [regex]::Match($formRawText, '(?s)<BaseForm[^>]*>(.+)</BaseForm>')
-		if ($bfMatch.Success) {
-			$bfContent = $bfMatch.Groups[1].Value
-			if ($bfContent -match '<DataPath>[^<]+</DataPath>') {
-				Report-Warn "11. ${ctx}: <DataPath> found in BaseForm (should be stripped for borrowed forms)"
-			}
-			if ($bfContent -match '<TitleDataPath>[^<]+</TitleDataPath>') {
-				Report-Warn "11. ${ctx}: <TitleDataPath> found in BaseForm (should be stripped)"
-			}
-		}
 
 		$script:borrowedFormsWithTree += @{
 			Path = $formXmlFile; RawText = $formRawText; Context = $ctx

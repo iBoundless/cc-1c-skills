@@ -42,7 +42,7 @@ powershell.exe -NoProfile -File .claude/skills/cfe-validate/scripts/cfe-validate
 | 8 | Каталоги объектов существуют | WARN |
 | 9 | Заимствованные объекты: ObjectBelonging=Adopted, ExtendedConfigurationObject UUID | ERROR/WARN |
 | 10 | Sub-items: Attribute, TabularSection (InternalInfo + вложенные), EnumValue, Form-ссылки | ERROR |
-| 11 | Заимствованные формы: метаданные, Form.xml, Module.bsl, BaseForm (DataPath, TitleDataPath) | ERROR/WARN |
+| 11 | Заимствованные формы: метаданные, Form.xml, Module.bsl, BaseForm version | ERROR/WARN |
 | 12 | Зависимости форм: CommonPicture, StyleItem (с whitelist платформенных), Enum DesignTimeRef | WARN |
 | 13 | TypeLink: human-readable Items.* DataPath (должны быть удалены) | WARN |
 

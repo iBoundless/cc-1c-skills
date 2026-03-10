@@ -764,14 +764,6 @@ def main():
         if '<BaseForm' in form_raw_text:
             if not re.search(r'<BaseForm[^>]+version=', form_raw_text):
                 r.warn(f'11. {ctx}: <BaseForm> missing version attribute')
-            # Check DataPath/TitleDataPath only inside BaseForm (not in extension-added elements)
-            bf_match = re.search(r'(?s)<BaseForm[^>]*>(.+)</BaseForm>', form_raw_text)
-            if bf_match:
-                bf_content = bf_match.group(1)
-                if re.search(r'<DataPath>[^<]+</DataPath>', bf_content):
-                    r.warn(f'11. {ctx}: <DataPath> found in BaseForm (should be stripped for borrowed forms)')
-                if re.search(r'<TitleDataPath>[^<]+</TitleDataPath>', bf_content):
-                    r.warn(f'11. {ctx}: <TitleDataPath> found in BaseForm (should be stripped)')
             borrowed_forms_with_tree.append({
                 'Path': form_xml_file, 'RawText': form_raw_text, 'Context': ctx,
             })
