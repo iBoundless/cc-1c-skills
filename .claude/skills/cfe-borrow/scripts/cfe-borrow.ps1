@@ -476,9 +476,8 @@ function Borrow-Form {
 	$formVersion = $srcFormEl.GetAttribute("version")
 	if (-not $formVersion) { $formVersion = "2.17" }
 
-	# Find direct children: form properties, AutoCommandBar, ChildItems
+	# Find direct children: form properties and AutoCommandBar
 	$srcAutoCmd = $null
-	$srcChildItems = $null
 	$formProps = @()
 	$reachedVisual = $false
 	foreach ($fc in $srcFormEl.ChildNodes) {
@@ -486,8 +485,8 @@ function Borrow-Form {
 		if ($fc.LocalName -eq 'AutoCommandBar' -and -not $srcAutoCmd) {
 			$reachedVisual = $true; $srcAutoCmd = $fc; continue
 		}
-		if ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) {
-			$reachedVisual = $true; $srcChildItems = $fc; continue
+		if ($fc.LocalName -eq 'ChildItems' -or $fc.LocalName -eq 'Events' -or $fc.LocalName -eq 'Attributes' -or $fc.LocalName -eq 'Commands' -or $fc.LocalName -eq 'Parameters') {
+			$reachedVisual = $true; continue
 		}
 		if (-not $reachedVisual) {
 			# Form-level properties before AutoCommandBar (WindowOpeningMode, AutoFillCheck, etc.)
@@ -498,31 +497,15 @@ function Borrow-Form {
 	# Get OuterXml and strip redundant namespace redeclarations (they're on root <Form>)
 	$nsStripPattern = '\s+xmlns(?::\w+)?="[^"]*"'
 
+	# AutoCommandBar: copy only properties (Autofill etc.), strip ChildItems
 	$autoCmdXml = ""
 	if ($srcAutoCmd) {
 		$autoCmdXml = $srcAutoCmd.OuterXml
 		$autoCmdXml = [regex]::Replace($autoCmdXml, $nsStripPattern, '')
-		# Replace all CommandName values with 0 (base form buttons lose command refs)
-		$autoCmdXml = [regex]::Replace($autoCmdXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
+		# Strip ChildItems from AutoCommandBar (buttons will appear from base form at runtime)
+		$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<ChildItems>.*?</ChildItems>', '')
 		# Replace Autofill true → false
 		$autoCmdXml = $autoCmdXml -replace '<Autofill>true</Autofill>', '<Autofill>false</Autofill>'
-		# Strip DataPath (references base form attributes not present in extension)
-		$autoCmdXml = [regex]::Replace($autoCmdXml, '\s*<DataPath>[^<]*</DataPath>', '')
-		# Strip element-level Events (base form event handlers not present in extension)
-		$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<Events>.*?</Events>', '')
-	}
-
-	$childItemsXml = ""
-	if ($srcChildItems) {
-		$childItemsXml = $srcChildItems.OuterXml
-		$childItemsXml = [regex]::Replace($childItemsXml, $nsStripPattern, '')
-		# Replace all CommandName values with 0 in ChildItems too
-		$childItemsXml = [regex]::Replace($childItemsXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
-		# Strip DataPath and element-level Events
-		$childItemsXml = [regex]::Replace($childItemsXml, '\s*<DataPath>[^<]*</DataPath>', '')
-		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<Events>.*?</Events>', '')
-	} else {
-		$childItemsXml = "<ChildItems/>"
 	}
 
 	# Extract the <Form ...> opening tag from source text (preserves namespace declarations)
@@ -538,7 +521,7 @@ function Borrow-Form {
 	$formXmlSb.Append($formTag) | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
-	# Part 1: form properties + visual elements
+	# Part 1: form properties + AutoCommandBar (no ChildItems — they come from base form at runtime)
 	foreach ($propXml in $formProps) {
 		$propXml = [regex]::Replace($propXml, $nsStripPattern, '')
 		$formXmlSb.Append("`t$propXml`r`n") | Out-Null
@@ -547,12 +530,10 @@ function Borrow-Form {
 		$formXmlSb.Append("`t$autoCmdXml") | Out-Null
 		$formXmlSb.Append("`r`n") | Out-Null
 	}
-	$formXmlSb.Append("`t$childItemsXml") | Out-Null
-	$formXmlSb.Append("`r`n") | Out-Null
 	$formXmlSb.Append("`t<Attributes/>") | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
-	# BaseForm: form properties + same visual elements, indented one more level
+	# BaseForm: same properties + AutoCommandBar (no ChildItems)
 	$formXmlSb.Append("`t<BaseForm version=`"${formVersion}`">") | Out-Null
 	$formXmlSb.Append("`r`n") | Out-Null
 
@@ -568,13 +549,6 @@ function Borrow-Form {
 			else { $formXmlSb.Append("`t$($acLines[$li])") | Out-Null }
 			$formXmlSb.Append("`r`n") | Out-Null
 		}
-	}
-
-	$ciLines = $childItemsXml -split "`r?`n"
-	for ($li = 0; $li -lt $ciLines.Count; $li++) {
-		if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
-		else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
-		$formXmlSb.Append("`r`n") | Out-Null
 	}
 
 	$formXmlSb.Append("`t`t<Attributes/>") | Out-Null
