@@ -2129,10 +2129,23 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
       if (!box) return { error: 'no_cell' };
       const cell = box.querySelector('.gridBoxText') || box;
       const r = cell.getBoundingClientRect();
-      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      const currentText = (cell.innerText?.trim() || '').replace(/\u00a0/g, ' ');
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), currentText };
     })()`);
 
     if (cellCoords.error) throw new Error(`fillTableRow: ${cellCoords.error}${cellCoords.total ? ' (total rows: ' + cellCoords.total + ')' : ''}`);
+
+    // Skip if cell already contains the desired value (single-field optimization)
+    const firstKey0 = Object.keys(fields)[0];
+    const firstVal0 = typeof fields[firstKey0] === 'object' ? fields[firstKey0].value : String(fields[firstKey0]);
+    let firstFieldSkipped = false;
+    if (cellCoords.currentText && firstVal0 &&
+        cellCoords.currentText.toLowerCase().includes(firstVal0.toLowerCase())) {
+      firstFieldSkipped = true;
+      if (Object.keys(fields).length === 1) {
+        return [{ field: firstKey0, ok: true, method: 'skip', value: cellCoords.currentText }];
+      }
+    }
 
     // Click first (tree grids enter edit on single click; dblclick toggles expand/collapse).
     // Then escalate: dblclick → F4 if needed.
@@ -2274,9 +2287,17 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
       // First field: selection form is already open from the dblclick above
       const firstKey = Object.keys(fields)[0];
       const firstInfo = pending.get(firstKey);
-      const pickResult = await directEditPick(directEditForm, firstKey, firstInfo);
-      firstInfo.filled = true;
-      results.push(pickResult);
+      if (firstFieldSkipped) {
+        firstInfo.filled = true;
+        results.push({ field: firstKey, ok: true, method: 'skip', value: cellCoords.currentText });
+        // Close the selection form that opened from the click
+        await page.keyboard.press('Escape');
+        await waitForStable(formNum);
+      } else {
+        const pickResult = await directEditPick(directEditForm, firstKey, firstInfo);
+        firstInfo.filled = true;
+        results.push(pickResult);
+      }
 
       // Remaining fields: dblclick on each column cell individually
       for (const [key, info] of pending) {
@@ -2315,11 +2336,19 @@ export async function fillTableRow(fields, { tab, add, row } = {}) {
           if (!box) return null;
           const cell = box.querySelector('.gridBoxText') || box;
           const r = cell.getBoundingClientRect();
-          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+          const currentText = (cell.innerText?.trim() || '').replace(/\\u00a0/g, ' ');
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), currentText };
         })()`);
         if (!nextCoords) {
           info.filled = true;
           results.push({ field: key, error: 'column_not_found', message: `Column for "${key}" not found` });
+          continue;
+        }
+        // Skip if cell already contains the desired value
+        if (nextCoords.currentText && info.value &&
+            nextCoords.currentText.toLowerCase().includes(info.value.toLowerCase())) {
+          info.filled = true;
+          results.push({ field: key, ok: true, method: 'skip', value: nextCoords.currentText });
           continue;
         }
         await page.mouse.dblclick(nextCoords.x, nextCoords.y);

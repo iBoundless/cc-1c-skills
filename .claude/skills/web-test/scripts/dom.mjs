@@ -476,8 +476,8 @@ export function getFormStateScript() {
  */
 export function navigateSectionScript(name) {
   return `(() => {
-    const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/ё/gi, 'е');
-    const target = ${JSON.stringify(name.toLowerCase().replace(/ё/g, 'е'))};
+    const norm = s => (s?.trim().replace(/\\u00a0/g, ' ').replace(/[\\r\\n]+/g, ' ').replace(/  +/g, ' ') || '').replace(/ё/gi, 'е');
+    const target = ${JSON.stringify(name.toLowerCase().replace(/ё/g, 'е').replace(/[\r\n]+/g, ' ').replace(/  +/g, ' '))};
     const els = [...document.querySelectorAll('[id^="themesCell_theme_"]')];
     let bestEl = els.find(el => norm(el.innerText).toLowerCase() === target);
     if (!bestEl) bestEl = els.find(el => norm(el.innerText).toLowerCase().includes(target));
