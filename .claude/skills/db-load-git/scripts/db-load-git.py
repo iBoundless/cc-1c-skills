@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-load-git v1.1 — Load Git changes into 1C database
+# db-load-git v1.2 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -84,6 +84,7 @@ def main():
         help="File format (default: Hierarchical)",
     )
     parser.add_argument("-DryRun", action="store_true", help="Only show what would be loaded (no actual load)")
+    parser.add_argument("-UpdateDB", action="store_true", help="Also update database configuration after load")
     args = parser.parse_args()
 
     # --- Resolve V8Path (skip if DryRun) ---
@@ -237,6 +238,10 @@ def main():
             arguments += ["-Extension", args.Extension]
         elif args.AllExtensions:
             arguments.append("-AllExtensions")
+
+        # --- UpdateDB ---
+        if args.UpdateDB:
+            arguments.append("/UpdateDBCfg")
 
         # --- Output ---
         out_file = os.path.join(temp_dir, "load_log.txt")

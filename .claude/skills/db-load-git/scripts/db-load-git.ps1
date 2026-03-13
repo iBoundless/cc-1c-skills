@@ -1,4 +1,4 @@
-﻿# db-load-git v1.1 — Load Git changes into 1C database
+﻿# db-load-git v1.2 — Load Git changes into 1C database
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 <#
 .SYNOPSIS
@@ -98,7 +98,10 @@ param(
     [string]$Format = "Hierarchical",
 
     [Parameter(Mandatory=$false)]
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$UpdateDB
 )
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -312,6 +315,11 @@ try {
         $arguments += "-Extension", "`"$Extension`""
     } elseif ($AllExtensions) {
         $arguments += "-AllExtensions"
+    }
+
+    # --- UpdateDB ---
+    if ($UpdateDB) {
+        $arguments += "/UpdateDBCfg"
     }
 
     # --- Output ---
