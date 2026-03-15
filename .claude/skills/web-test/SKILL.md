@@ -333,12 +333,12 @@ Clear filters. Without arguments clears all, with `{ field }` clears specific ba
 #### `screenshot()` → PNG Buffer
 #### `wait(seconds)` → form state
 #### `getPage()` → Playwright Page (raw, for advanced scripting)
-#### `startRecording(path, opts?)` / `stopRecording()` → MP4 video recording
+#### `startRecording(path, opts?)` / `stopRecording()` → MP4 video recording (`{ force: true }` to restart if already recording)
 #### `showCaption(text, opts?)` / `hideCaption()` → text overlay on page
 #### `showTitleSlide(text, opts?)` / `hideTitleSlide()` → full-screen title card (intro/outro)
 #### `isRecording()` → boolean
 #### `setHighlight(on)` / `isHighlightMode()` → auto-highlight mode for video
-#### `highlight(text)` / `unhighlight()` → manual element highlighting
+#### `highlight(text)` / `unhighlight()` → manual element highlighting (error lists available elements)
 #### `addNarration(videoPath, opts?)` → narrated MP4 with TTS voiceover
 #### `getCaptions()` → caption timestamps from last recording
 

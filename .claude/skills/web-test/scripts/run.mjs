@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// web-test run v1.1 — CLI runner for 1C web client automation
+// web-test run v1.2 — CLI runner for 1C web client automation
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * CLI runner for 1C web client automation.
@@ -131,7 +131,7 @@ async function executeScript(code, { noRecord } = {}) {
     // Wrap action functions to auto-detect 1C errors (modal, balloon)
     // and stop execution immediately with diagnostic info
     const ACTION_FNS = [
-      'clickElement', 'fillFields', 'selectValue', 'fillTableRow',
+      'clickElement', 'fillFields', 'fillField', 'selectValue', 'fillTableRow',
       'deleteTableRow', 'openCommand', 'navigateSection', 'navigateLink', 'openFile',
       'closeForm', 'filterList', 'unfilterList'
     ];
@@ -161,6 +161,11 @@ async function executeScript(code, { noRecord } = {}) {
   } catch (e) {
     console.log = origLog;
     console.error = origErr;
+
+    // Auto-stop recording if active (prevents "Already recording" on next exec)
+    if (browser.isRecording()) {
+      try { await browser.stopRecording(); } catch {}
+    }
 
     // Error screenshot
     let shotFile;

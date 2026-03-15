@@ -1,4 +1,4 @@
-// web-test browser v1.0 — Playwright browser management for 1C web client
+// web-test browser v1.2 — Playwright browser management for 1C web client
 // Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 /**
  * Playwright browser management for 1C web client.
@@ -1438,6 +1438,11 @@ export async function fillFields(fields) {
     throw new Error(`fillFields: ${failed.length} of ${results.length} field(s) failed:\n${details}`);
   }
   return { filled: results, form: formData };
+}
+
+/** Convenience alias: fill a single field. Same as fillFields({ name: value }). */
+export async function fillField(name, value) {
+  return fillFields({ [name]: value });
 }
 
 /** Click a button/hyperlink/tab on the current form. Use {dblclick: true} to double-click (open items from lists). */
@@ -3526,7 +3531,13 @@ export function isRecording() {
  */
 export async function startRecording(outputPath, opts = {}) {
   ensureConnected();
-  if (recorder) throw new Error('Already recording. Call stopRecording() first.');
+  if (recorder) {
+    if (opts.force) {
+      try { await stopRecording(); } catch {}
+    } else {
+      throw new Error('Already recording. Call stopRecording() first, or use { force: true }.');
+    }
+  }
   lastCaptions = [];
   lastRecordingDuration = null;
 
@@ -4063,8 +4074,8 @@ export async function highlight(text, opts = {}) {
 
   // 2. Form groups/panels — checked BEFORE buttons/fields because group names
   //    often collide with command bar buttons (e.g. "БизнесПроцессы" is both a
-  //    panel and a command bar element). Groups are large visual containers;
-  //    min-area filter (100x50) prevents matching small elements.
+  //    panel and a command bar element). Min-area filter (100x50) only for fuzzy
+  //    match — exact match by name works regardless of size (Representation=None).
   if (!elId) {
     const formNum = await page.evaluate(detectFormScript());
     if (formNum !== null) {
@@ -4072,9 +4083,9 @@ export async function highlight(text, opts = {}) {
         const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/ё/gi, 'е');
         const target = ${JSON.stringify(normYo(text.toLowerCase()))};
         const p = 'form' + ${formNum} + '_';
-        // Collect visible group containers — _container or _div elements (min 100x50 to skip command bars)
+        // Collect ALL visible group containers — _container or _div elements
         const groups = [...document.querySelectorAll('[id^="' + p + '"][id$="_container"], [id^="' + p + '"][id$="_div"]')]
-          .filter(el => el.offsetWidth >= 100 && el.offsetHeight >= 50);
+          .filter(el => el.offsetWidth > 0);
         const items = groups.map(el => {
           const idName = el.id.replace(p, '').replace(/_(container|div)$/, '');
           // Try to find a visible title/label for this group
@@ -4082,15 +4093,15 @@ export async function highlight(text, opts = {}) {
             || document.getElementById(p + idName + '_title_text');
           const label = norm(titleEl?.innerText || '').toLowerCase();
           const name = norm(idName).toLowerCase();
-          return { id: el.id, name, label };
+          const big = el.offsetWidth >= 100 && el.offsetHeight >= 50;
+          return { id: el.id, name, label, big };
         });
-        // Fuzzy match: exact label → exact name → startsWith → includes
-        // Skip includes() for short strings (< 4 chars) to avoid false positives
-        // e.g. "Да" matching "Удаляемые"
+        // Exact match: no size filter (supports Representation=None groups)
         let found = items.find(i => i.label === target);
         if (!found) found = items.find(i => i.name === target);
-        if (!found) found = items.find(i => i.label.startsWith(target) || i.name.startsWith(target));
-        if (!found && target.length >= 4) found = items.find(i => i.label.includes(target) || i.name.includes(target));
+        // Fuzzy match: only large groups (min 100x50) to avoid matching command bars
+        if (!found) found = items.filter(i => i.big).find(i => i.label.startsWith(target) || i.name.startsWith(target));
+        if (!found && target.length >= 4) found = items.filter(i => i.big).find(i => i.label.includes(target) || i.name.includes(target));
         return found ? found.id : null;
       })()`);
     }
@@ -4157,7 +4168,56 @@ export async function highlight(text, opts = {}) {
     })()`);
   }
 
-  if (!elId) throw new Error(`highlight: "${text}" not found`);
+  if (!elId) {
+    // Collect available elements to help the caller fix the name
+    const available = await page.evaluate(`(() => {
+      const norm = s => (s?.trim().replace(/\\u00a0/g, ' ') || '').replace(/ё/gi, 'е');
+      const result = {};
+      // Commands
+      const cmds = [...document.querySelectorAll('[id^="cmd_"][id$="_txt"]')].filter(e => e.offsetWidth > 0).map(e => norm(e.innerText));
+      if (cmds.length) result.commands = cmds;
+      // Sections
+      const secs = [...document.querySelectorAll('[id^="themesCell_theme_"]')].map(e => norm(e.innerText)).filter(Boolean);
+      if (secs.length) result.sections = secs;
+      // Form elements
+      ${(() => {
+        // Detect form inline to avoid extra evaluate round-trip
+        return `
+        const forms = {};
+        document.querySelectorAll('[id^="form"]').forEach(el => {
+          const m = el.id.match(/^form(\\d+)_/);
+          if (m) forms[m[1]] = (forms[m[1]] || 0) + 1;
+        });
+        let formNum = null, maxCount = 0;
+        for (const [n, c] of Object.entries(forms)) {
+          if (parseInt(n) > 0 && c > maxCount) { maxCount = c; formNum = n; }
+        }
+        if (formNum !== null) {
+          const p = 'form' + formNum + '_';
+          // Groups
+          const groups = [...document.querySelectorAll('[id^="' + p + '"][id$="_container"], [id^="' + p + '"][id$="_div"]')]
+            .filter(el => el.offsetWidth > 0)
+            .map(el => {
+              const idName = el.id.replace(p, '').replace(/_(container|div)$/, '');
+              const titleEl = document.getElementById(p + idName + '#title_text') || document.getElementById(p + idName + '_title_text');
+              return norm(titleEl?.innerText || '') || idName;
+            }).filter(Boolean);
+          if (groups.length) result.groups = groups;
+          // Buttons/links
+          const btns = [...document.querySelectorAll('[id^="' + p + '"].btnText, [id^="' + p + '"] .btnText, [id^="' + p + '"].hplnk')]
+            .filter(el => el.offsetWidth > 0).map(el => norm(el.innerText)).filter(Boolean);
+          if (btns.length) result.buttons = [...new Set(btns)];
+        }`;
+      })()}
+      return result;
+    })()`);
+    const parts = [];
+    for (const [cat, items] of Object.entries(available)) {
+      parts.push(`  ${cat}: ${items.join(', ')}`);
+    }
+    const hint = parts.length ? `\nAvailable:\n${parts.join('\n')}` : '';
+    throw new Error(`highlight: "${text}" not found${hint}`);
+  }
 
   // Overlay div + rAF tracking loop (not clipped by overflow:hidden, follows layout shifts)
   await page.evaluate(({ elId, color, padding }) => {
