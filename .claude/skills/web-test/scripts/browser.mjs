@@ -2206,6 +2206,13 @@ export async function fillTableRow(fields, { tab, add, row, table } = {}) {
       }
       const results = [{ field: firstKey0, ok: true, method: 'toggle', value: desired }];
       await waitForStable(formNum);
+      // If more fields remain, process them on the same row
+      const remaining = { ...fields };
+      delete remaining[firstKey0];
+      if (Object.keys(remaining).length > 0) {
+        const more = await fillTableRow(remaining, { row, table });
+        results.push(...more);
+      }
       return results;
     }
 
