@@ -4253,7 +4253,7 @@ export async function showImage(imagePath, opts = {}) {
     blur:  { bg: '#222',    fit: 'contain', shadow: true,  blur: true  },
     dark:  { bg: '#2a2a2a', fit: 'contain', shadow: true,  blur: false },
     light: { bg: '#ffffff', fit: 'contain', shadow: true,  blur: false },
-    full:  { bg: '#000',    fit: 'cover',   shadow: false, blur: false },
+    full:  { bg: '#000',    fit: 'contain', shadow: false, blur: false },
   };
   const preset = presets[style] || presets.blur;
 
@@ -4316,7 +4316,7 @@ export async function showImage(imagePath, opts = {}) {
     const shadowCss = shadow ? 'box-shadow:0 4px 40px rgba(0,0,0,0.5);' : '';
     const sizeCss = isFull
       ? `width:100%;height:100%;object-fit:${fit};`
-      : `max-width:${maxSize};max-height:${maxSize};object-fit:${fit};`;
+      : `max-width:${maxSize};max-height:${maxSize};min-width:50%;min-height:50%;object-fit:${fit};`;
     html += `<img src="${dataUrl}" style="position:relative;${sizeCss}${shadowCss}" />`;
 
     div.innerHTML = html;
