@@ -41,8 +41,8 @@ const LOAD_TIMEOUT = 60000;
 const INIT_TIMEOUT = 60000;
 const ACTION_WAIT = 2000;   // fallback minimum wait
 
-/** Normalize ё→е for fuzzy matching (Russian letter yo vs ye). */
-const normYo = s => s.replace(/ё/gi, 'е');
+/** Normalize ё→е and \u00a0→space for fuzzy matching. */
+const normYo = s => s.replace(/ё/gi, 'е').replace(/\u00a0/g, ' ');
 const MAX_WAIT = 10000;     // max wait for stability
 const POLL_INTERVAL = 200;  // polling interval
 const STABLE_CYCLES = 3;    // consecutive stable cycles needed
@@ -1589,7 +1589,7 @@ export async function clickElement(text, { dblclick, table, toggle, expand } = {
   if (pending?.confirmation) {
     const btnResult = await page.evaluate(`(() => {
       const norm = s => s?.trim().replace(/\\u00a0/g, ' ') || '';
-      const ny = s => s.replace(/ё/gi, 'е');
+      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
       const target = ny(${JSON.stringify(text.toLowerCase())});
       const btns = [...document.querySelectorAll('a.press.pressButton')].filter(el => el.offsetWidth > 0);
       let best = btns.find(el => ny(norm(el.innerText).toLowerCase()) === target);
@@ -2065,20 +2065,28 @@ export async function selectValue(fieldName, searchText, { type } = {}) {
     return page.evaluate(`(() => {
       const edd = document.getElementById('editDropDown');
       if (!edd || edd.offsetWidth === 0) return null;
-      const ny = s => s.replace(/ё/gi, 'е');
+      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
       const target = ny(${JSON.stringify(itemName.toLowerCase())});
-      // Search .eddText items
-      for (const el of edd.querySelectorAll('.eddText')) {
-        if (el.offsetWidth === 0) continue;
+      const items = [...edd.querySelectorAll('.eddText')].filter(el => el.offsetWidth > 0);
+      function clickEl(el) {
+        const r = el.getBoundingClientRect();
+        const opts = { bubbles: true, cancelable: true, clientX: r.x + r.width/2, clientY: r.y + r.height/2 };
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        return el.innerText.trim();
+      }
+      // Pass 1: exact match (prefer over partial)
+      for (const el of items) {
         const t = ny((el.innerText?.trim() || '').toLowerCase());
-        if (t === target || t.includes(target) || target.includes(t.replace(/\\s*\\([^)]*\\)\\s*$/, ''))) {
-          const r = el.getBoundingClientRect();
-          const opts = { bubbles: true, cancelable: true, clientX: r.x + r.width/2, clientY: r.y + r.height/2 };
-          el.dispatchEvent(new MouseEvent('mousedown', opts));
-          el.dispatchEvent(new MouseEvent('mouseup', opts));
-          el.dispatchEvent(new MouseEvent('click', opts));
-          return el.innerText.trim();
-        }
+        if (t === target) return clickEl(el);
+        const stripped = t.replace(/\\s*\\([^)]*\\)\\s*$/, '');
+        if (stripped === target) return clickEl(el);
+      }
+      // Pass 2: partial match
+      for (const el of items) {
+        const t = ny((el.innerText?.trim() || '').toLowerCase());
+        if (t.includes(target) || target.includes(t.replace(/\\s*\\([^)]*\\)\\s*$/, ''))) return clickEl(el);
       }
       return null;
     })()`);
@@ -3462,7 +3470,7 @@ export async function filterList(text, { field, exact } = {}) {
     for (let i = 0; i < headers.length; i++) {
       const t = headers[i].innerText?.trim().replace(/\\u00a0/g, ' ');
       if (!t) continue;
-      const ny = s => s.replace(/ё/gi, 'е');
+      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
       const tl = ny(t.toLowerCase()), fl = ny(targetField.toLowerCase());
       if (tl === fl) { colIndex = i; break; }
       if (startsWithIdx < 0 && tl.startsWith(fl)) { startsWithIdx = i; }
@@ -3534,7 +3542,7 @@ export async function filterList(text, { field, exact } = {}) {
       const ddResult = await page.evaluate(`(() => {
         const edd = document.getElementById('editDropDown');
         if (!edd || edd.offsetWidth === 0) return { error: 'no_dropdown' };
-        const ny = s => s.replace(/ё/gi, 'е');
+        const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
         const target = ny(${JSON.stringify(field.toLowerCase())});
         const items = [...edd.querySelectorAll('div')].filter(el =>
           el.offsetWidth > 0 && el.innerText?.trim() && !el.innerText.includes('\\n'));
@@ -3684,7 +3692,7 @@ export async function unfilterList({ field } = {}) {
     const closeBtn = await page.evaluate(`(() => {
       const p = 'form${formNum}_';
       const norm = s => s?.trim().replace(/\\u00a0/g, ' ').replace(/:$/, '').replace(/\\n/g, ' ') || '';
-      const ny = s => s.replace(/ё/gi, 'е');
+      const ny = s => s.replace(/ё/gi, 'е').replace(/\\u00a0/g, ' ');
       const target = ny(${JSON.stringify(field.toLowerCase())});
       const items = [...document.querySelectorAll('[id^="' + p + '"].trainItem')].filter(el => el.offsetWidth > 0);
       for (const item of items) {
