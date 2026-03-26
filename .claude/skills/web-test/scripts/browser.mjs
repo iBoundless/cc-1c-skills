@@ -1805,8 +1805,19 @@ export async function fillFields(fields) {
         // Combobox/reference with DLB: DLB-first, then paste fallback
         const refResult = await fillReferenceField(selector, r.field, fields[r.field], formNum);
         results.push(refResult);
+      } else if (r.hasPick && r.isDate) {
+        // Date/time field with calendar CB — use paste (calendar is not a selection form)
+        await page.click(selector);
+        await page.waitForTimeout(200);
+        await page.keyboard.press('Control+A');
+        await page.evaluate(`navigator.clipboard.writeText(${JSON.stringify(String(fields[r.field]))})`);
+        await page.keyboard.press('Control+V');
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Tab');
+        await waitForStable();
+        results.push({ field: r.field, ok: true, value: String(fields[r.field]), method: 'paste' });
       } else if (r.hasPick) {
-        // Reference field without DLB (non-editable): delegate to selectValue (F4 → selection form)
+        // Reference field with CB (non-editable or editable ref): delegate to selectValue (F4 → selection form)
         const svResult = await selectValue(r.field, String(fields[r.field]));
         if (svResult?.error) {
           results.push({ field: r.field, error: svResult.error, message: svResult.message });
